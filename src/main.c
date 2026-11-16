@@ -55,7 +55,9 @@ void next_theme(void);
 
 #define SCREEN    0xE000u
 #define COLORS    ((unsigned char *)0xCC00)
-#define ROWBASE(r) (SCREEN + (unsigned)(r) * 320u)
+#define ROWC(r)    (SCREEN + (r) * 320u)                 /* constante */
+static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
+#define ROWBASE(r) rowbase((unsigned char)(r))
 #define TEXT_X0   8
 #define TEXT_W    304
 #define TEXT_ROW0 2
@@ -71,7 +73,7 @@ void next_theme(void);
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    4400u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3300u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -477,11 +479,11 @@ static void place_cursor(void)
 {
     unsigned i = line_of(cursor);
     if (i + 1 == top) {                         /* une ligne plus haut : decale l'image */
-        bm_move(ROWBASE(TEXT_ROW0 + 1), ROWBASE(TEXT_ROW0), (VISIBLE - 1) * 320u);
+        bm_move(ROWC(TEXT_ROW0 + 1), ROWC(TEXT_ROW0), (VISIBLE - 1) * 320u);
         top = i;
         draw_line(i);
     } else if (i == top + VISIBLE) {            /* une ligne plus bas */
-        bm_move(ROWBASE(TEXT_ROW0), ROWBASE(TEXT_ROW0 + 1), (VISIBLE - 1) * 320u);
+        bm_move(ROWC(TEXT_ROW0), ROWC(TEXT_ROW0 + 1), (VISIBLE - 1) * 320u);
         ++top;
         draw_line(i);
     } else if (i < top) { top = i; draw_text_area(); }
@@ -682,9 +684,10 @@ static void redraw_all(void)
 
 static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
 {
-    unsigned char r;
+    unsigned char r, e = (unsigned char)(row + rows);
+    unsigned a;
     cursor_off();
-    for (r = row; r < row + rows; ++r) {
+    for (r = row; r < e; ++r) {
         color_cells(r, (unsigned char)(x / 8), (unsigned char)(w / 8 + 1), COL_PAGE);
         clear_cells(r, x, w);
         vline(r, x, 0x80);
@@ -692,12 +695,14 @@ static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
         bm_fill(ROWBASE(r) + x + w, 8, r == row ? 0 : 0xC0);
     }
     hline(row, x, w, 0);
-    hline((unsigned char)(row + rows - 1), x, w, 7);
-    if (row + rows < 25) {
-        color_cells((unsigned char)(row + rows), (unsigned char)(x / 8), (unsigned char)(w / 8 + 1), COL_PAGE);
-        bm_fill(ROWBASE(row + rows) + x + 8, w, 0);
-        hline((unsigned char)(row + rows), x + 8, w, 0);
-        hline((unsigned char)(row + rows), x + 8, w, 1);
+    hline((unsigned char)(e - 1), x, w, 7);
+    if (e < 25) {
+        color_cells(e, (unsigned char)(x / 8), (unsigned char)(w / 8 + 1), COL_PAGE);
+        a = ROWBASE(e) + x;
+        bm_fill(a + 8, w, 0);
+        hline(e, x + 8, w, 0);
+        hline(e, x + 8, w, 1);
+        bm_fill(a + w, 2, 0xC0);                  /* l'ombre du bas s'arrete avec celle de droite */
     }
 }
 
@@ -789,6 +794,7 @@ static unsigned char read_key(void)
 /* ------------------------------------------------------------------ */
 /* Boites de dialogue                                                  */
 
+#define MAXFILES 13
 #define DLG_ROW  7
 #define DLG_X    40
 #define DLG_W    240
@@ -809,14 +815,15 @@ static void dialog(unsigned char rows, const char *title)
 
 static void button(unsigned x, unsigned char row, const char *label)
 {
+    unsigned a = ROWBASE(row) + x;
     hline((unsigned char)(row - 1), x + 8, BTN_W - 16, 6);
     hline((unsigned char)(row + 1), x + 8, BTN_W - 16, 1);
     vline(row, x, 0x10);
     vline(row, x + BTN_W - 8, 0x08);
-    bm_or(ROWBASE(row - 1) + x + 7, 0x0F);
-    bm_or(ROWBASE(row - 1) + x + BTN_W - 8 + 7, 0xF0);
-    bm_or(ROWBASE(row + 1) + x, 0x0F);
-    bm_or(ROWBASE(row + 1) + x + BTN_W - 8, 0xF0);
+    bm_or(a - 320 + 7, 0x0F);
+    bm_or(a - 320 + BTN_W - 8 + 7, 0xF0);
+    bm_or(a + 320, 0x0F);
+    bm_or(a + 320 + BTN_W - 8, 0xF0);
     put_text(x + (BTN_W - text_width(label, BOLD)) / 2, row, label, BOLD);
 }
 
@@ -1006,6 +1013,150 @@ static void show_disk_error(void)
     message(S_DISKERR, shown, 0, 0);
 }
 
+#ifdef REU
+/* Repertoire : noms des fichiers SEQ (sous les E/S), blocs libres, taille du
+   fichier "find" s'il existe deja. Blocs libres inconnus (pas de disque) : 0xFFFF. */
+#ifdef RTF
+static unsigned char rtf_doc;                   /* le document vient d'un fichier RTF / a ete enregistre en RTF */
+static unsigned char write_rtf(char *name);
+#endif
+static unsigned blk_free, blk_old, fsize[MAXFILES];
+static unsigned char nfiles, fpage, fmore;
+
+/* Page fpage de MAXFILES noms ; fmore : il y en a d'autres apres. */
+static void scan_dir(const char *find)
+{
+    struct cbm_dirent e;
+    unsigned char r, tot = 0, skip = (unsigned char)(fpage * MAXFILES);
+    nfiles = 0;
+    blk_free = 0xFFFF;
+    blk_old = 0;
+    if (cbm_opendir(1, 8)) return;
+    for (;;) {
+        r = cbm_readdir(1, &e);
+        if (r == 2) { blk_free = e.size; break; }
+        if (r) break;
+        if (e.type != CBM_T_SEQ) continue;
+        if (find && !strcmp(e.name, find)) blk_old = e.size;
+        if (tot >= skip && nfiles < MAXFILES) { fsize[nfiles] = e.size; io_hide(); strcpy(names[nfiles++], e.name); io_show(); }
+        ++tot;
+    }
+    cbm_closedir(1);
+    fmore = tot > skip + nfiles;
+}
+
+/* Liste des fichiers en deux colonnes + blocs libres. Renvoie l'index choisi,
+   254 pour "Nouveau..." (si newbtn), 255 si annule. */
+static const unsigned char arrow_up[8] = { 0x18, 0x3C, 0x7E, 0x18, 0x18, 0x18, 0x18, 0x18 };
+
+static void arrow_draw(unsigned char row, unsigned char up)
+{
+    unsigned char k;
+    for (k = 0; k < 8; ++k) bm_or(ROWBASE(row) + DLG_X + DLG_W - 24 + k, arrow_up[up ? k : 7 - k]);
+}
+
+static unsigned char pick_file(const char *title, unsigned char newbtn)
+{
+    unsigned char i, rows, by, sel, last;
+    char *shown = inputbuf, *b = (char *)outbuf;
+    for (;;) {
+        rows = (fpage || fmore) ? MAXFILES : nfiles;
+        by = (unsigned char)(9 + rows);
+        last = (unsigned char)(6 + rows);
+        sel = 255;
+        panel(4, (unsigned char)(rows + 7), DLG_X, DLG_W);
+        put_text(DLG_X + 16, 5, title, BOLD);
+        for (i = 0; i < nfiles; ++i) {          /* blocs (aligne a droite) puis le nom */
+            utoa_simple(b, fsize[i]);
+            put_text(DLG_X + 48 - text_width(b, 0), (unsigned char)(7 + i), b, 0);
+            io_hide();
+            strcpy(shown, names[i]);
+            io_show();
+            petscii_to_text(shown, shown);
+            put_text(DLG_X + 60, (unsigned char)(7 + i), shown, 0);
+        }
+        strcpy(utoa_simple(b, blk_free), S_BLKFREE);
+        put_text(DLG_X + 16, (unsigned char)(7 + rows), b, 0);
+        button(BTN_CANCEL_X, by, S_CANCEL);
+        if (newbtn) button(BTN_OK_X, by, S_NEWFILE);
+        if (fpage) arrow_draw(7, 1);
+        if (fmore) arrow_draw(last, 0);
+        while (sel == 255) {
+            poll_mouse();
+            key = read_key();
+            if (key == 3 || on_button(BTN_CANCEL_X, by)) break;
+            if (newbtn && (key == CR || on_button(BTN_OK_X, by))) sel = 254;
+            if (clicked && mouse_y / 8 >= 7 && mouse_y / 8 <= last) {
+                i = (unsigned char)(mouse_y / 8 - 7);
+                if (mouse_x >= DLG_X + DLG_W - 32 && (i == 0 || i == rows - 1) && (fpage || fmore)) {
+                    key = i ? 0x11 : 0x91;      /* fleche cliquee : page suivante / precedente */
+                } else if (i < nfiles) sel = i;
+            }
+            if ((key == 0x11 && fmore) || (key == 0x91 && fpage)) { sel = 253; }
+        }
+        if (sel != 253) return sel;
+        fpage = (unsigned char)(fpage + (key == 0x11 ? 1 : -1));
+        scan_dir(0);
+    }
+}
+
+/* Nom de fichier : choix dans la liste (ecrase) ou saisie ("Nouveau..."). */
+static unsigned char ask_name(const char *title, char *dest)
+{
+    char *buf = (char *)outbuf + 64;          /* libre hors impression */
+    unsigned char sel = 254;
+    fpage = 0;
+    scan_dir(0);
+    if (nfiles) {
+        sel = pick_file(title, 1);
+        if (sel == 255) { redraw_all(); return 0; }
+        if (sel < 254) {
+            io_hide();
+            strcpy(dest, names[sel]);
+            io_show();
+            redraw_all();
+            return 1;
+        }
+    }
+    if (sel == 254 && nfiles) redraw_all();
+    strcpy(buf, dest);
+    if (!ask_text(title, S_FILENAME, buf, 16, 1)) return 0;
+    strcpy(dest, buf);
+    return 1;
+}
+#define ask_filename() ask_name(S_SAVEAS, filename)
+
+/* Verifie qu'un fichier de "bytes" octets tient sur le disque et prepare cmdname.
+   Assez de place : "@0:" (remplace sans risque). Sinon, si l'ancien fichier du meme
+   nom libere assez, apres confirmation il est efface d'abord. */
+static unsigned char fit_check(dpos bytes, const char *name)
+{
+    dpos nb = (bytes + 253) / 254;
+    unsigned need = nb > 60000UL ? 60000u : (unsigned)nb;
+    char *b = (char *)outbuf;
+    scan_dir(name);
+    strcpy(cmdname, "@0:");
+    if (need > blk_free) {
+        if (!blk_old || need > blk_free + blk_old) {
+            strcpy(b, S_NEEDFREE);
+            b = utoa_simple(b + strlen(b), need);
+            *b++ = '/';
+            utoa_simple(b, blk_free);
+            message(S_SAVEAS, S_NOROOM, (char *)outbuf, 0);
+            return 0;
+        }
+        if (!message(S_SAVEAS, S_REPL1, S_REPL2, 1)) return 0;
+        strcpy(cmdname, "S0:");
+        strcat(cmdname, name);
+        cbm_open(15, 8, 15, cmdname);
+        cbm_close(15);
+        strcpy(cmdname, "0:");
+    }
+    strcat(cmdname, name);
+    strcat(cmdname, ",S,W");
+    return 1;
+}
+#else
 static unsigned char ask_filename(void)
 {
     char *buf = (char *)outbuf + 64;          /* libre hors impression */
@@ -1014,6 +1165,7 @@ static unsigned char ask_filename(void)
     strcpy(filename, buf);
     return 1;
 }
+#endif
 
 /* Format PLM2 : "PLM2", longueur (2 octets), texte avec marqueurs. */
 static void save_doc(void)
@@ -1027,10 +1179,10 @@ static void save_doc(void)
 #define SAVELEN doclen
 #define HEADLEN 6
 #endif
+#ifdef RTF
+    if (rtf_doc && filename[0]) { write_rtf(filename); return; }   /* un document RTF s'enregistre en RTF */
+#endif
     if (!filename[0] && !ask_filename()) return;
-    strcpy(cmdname, "@0:");
-    strcat(cmdname, filename);
-    strcat(cmdname, ",S,W");
     memcpy(head, "PLM2", 4);
     head[4] = (unsigned char)SAVELEN;
     head[5] = (unsigned char)(SAVELEN >> 8);
@@ -1041,6 +1193,11 @@ static void save_doc(void)
         head[7] = (unsigned char)(SAVELEN >> 24);
         hl = 8;
     }
+    if (!fit_check(SAVELEN + hl, filename)) return;
+#else
+    strcpy(cmdname, "@0:");
+    strcat(cmdname, filename);
+    strcat(cmdname, ",S,W");
 #endif
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
@@ -1074,6 +1231,9 @@ static void new_doc(void)
     style = 0;
     dirty = 0;
     filename[0] = 0;
+#ifdef RTF
+    rtf_doc = 0;
+#endif
     layout_all();
 }
 
@@ -1425,6 +1585,9 @@ static void load_named(void)
     strcat(cmdname, ",S,R");
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+#ifdef RTF
+    rtf_doc = 0;
+#endif
     cbm_read(2, head, 6);
     n = head[4] | (head[5] << 8);
 #ifdef REU
@@ -1465,13 +1628,35 @@ static void load_named(void)
     style = style_before(0);
 }
 
-#define MAXFILES 15
-
 #ifdef RTF
 static unsigned char rtf_mode;
 static void load_rtf(void);
 #endif
 
+#ifdef REU
+static void open_doc(void)
+{
+    unsigned char sel;
+    if (dirty && !message(S_OPEN, S_LOSE, 0, 1)) return;
+    fpage = 0;
+    scan_dir(0);
+    if (!nfiles) {
+        if (disk_status() >= 20) show_disk_error(); else message(S_OPEN, S_NOFILES, 0, 0);
+        return;
+    }
+    sel = pick_file(S_PICK, 0);
+    if (sel < 254) {
+        io_hide();
+        strcpy(filename, names[sel]);
+        io_show();
+#ifdef RTF
+        if (rtf_mode) load_rtf(); else
+#endif
+        load_named();
+    }
+    redraw_all();
+}
+#else
 static void open_doc(void)
 {
     struct cbm_dirent e;
@@ -1519,6 +1704,7 @@ static void open_doc(void)
     }
     redraw_all();
 }
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Impression sur MPS-803 (bus serie, peripherique 4)                  */
@@ -2212,10 +2398,11 @@ static void load_rtf(void)
         }
         suf_len = total;
         win_base = doclen = 0;
+        rtf_doc = 1;                            /* garde le nom : F1 enregistre en RTF au meme endroit */
     } else {
         message(S_OPENRTF, S_BADRTF, 0, 0);
+        filename[0] = 0;
     }
-    filename[0] = 0;
     cursor = 0;
     anchor = NOSEL;
     top = 0;
@@ -2233,60 +2420,83 @@ static unsigned char *w_str(unsigned char *o, const char *s)
     return o + strlen(s);
 }
 
-static void write_rtf(char *buf)
+static dpos rtf_tot;                            /* essai a blanc : octets comptes */
+static unsigned char rtf_dry;
+static char rtfname[22];
+
+static void rtf_put(unsigned n)
+{
+    if (rtf_dry) rtf_tot += n; else cbm_write(2, outbuf, n);
+}
+
+static void rtf_body(void)
 {
     unsigned char *wbuf = outbuf + 400;          /* entree : 64 octets en fin de outbuf, sortie en debut */
     unsigned char *o, c, i, ws = 0, ns;
     dpos g, tot;
     unsigned k;
-    strcpy(cmdname, "@0:");
-    strcat(cmdname, buf);
-    strcat(cmdname, ",S,W");
-    disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
-        o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0\\fs24 ");
-        tot = doc_total();
-        for (g = 0; g < tot; g += k) {
-            k = tot - g > 64 ? 64 : (unsigned)(tot - g);
-            doc_read(wbuf, g, k);
-            for (i = 0; i < k; ++i) {
-                c = wbuf[i];
-                if (o > outbuf + 300) { cbm_write(2, outbuf, (unsigned)(o - outbuf)); o = outbuf; }
-                if (IS_MARK(c)) {
-                    ns = c & 7;
-                    if (ns == ws) continue;
-                    if ((ns ^ ws) & BOLD) o = w_str(o, ns & BOLD ? "\\b" : "\\b0");
-                    if ((ns ^ ws) & ITALIC) o = w_str(o, ns & ITALIC ? "\\i" : "\\i0");
-                    if ((ns ^ ws) & UNDERLINE) o = w_str(o, ns & UNDERLINE ? "\\ul" : "\\ulnone");
-                    *o++ = ' ';
-                    ws = ns;
-                } else if (c == CR) {
-                    o = w_str(o, "\\par\n");
-                } else if (c >= 128) {
-                    o = w_str(o, "\\u");
-                    o = (unsigned char *)utoa_simple((char *)o, c - 128u < sizeof ucode / 2 ? ucode[c - 128] : '?');
-                    *o++ = '?';
-                } else if (c >= 32) {
-                    if (c == '\\' || c == '{' || c == '}') *o++ = '\\';
-                    *o++ = c;
-                }
+    o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0\\fs24 ");
+    tot = doc_total();
+    for (g = 0; g < tot; g += k) {
+        k = tot - g > 64 ? 64 : (unsigned)(tot - g);
+        doc_read(wbuf, g, k);
+        for (i = 0; i < k; ++i) {
+            c = wbuf[i];
+            if (o > outbuf + 300) { rtf_put((unsigned)(o - outbuf)); o = outbuf; }
+            if (IS_MARK(c)) {
+                ns = c & 7;
+                if (ns == ws) continue;
+                if ((ns ^ ws) & BOLD) o = w_str(o, ns & BOLD ? "\\b" : "\\b0");
+                if ((ns ^ ws) & ITALIC) o = w_str(o, ns & ITALIC ? "\\i" : "\\i0");
+                if ((ns ^ ws) & UNDERLINE) o = w_str(o, ns & UNDERLINE ? "\\ul" : "\\ulnone");
+                *o++ = ' ';
+                ws = ns;
+            } else if (c == CR) {
+                o = w_str(o, "\\par\n");
+            } else if (c >= 128) {
+                o = w_str(o, "\\u");
+                o = (unsigned char *)utoa_simple((char *)o, c - 128u < sizeof ucode / 2 ? ucode[c - 128] : '?');
+                *o++ = '?';
+            } else if (c >= 32) {
+                if (c == '\\' || c == '{' || c == '}') *o++ = '\\';
+                *o++ = c;
             }
         }
-        *o++ = '}';
-        cbm_write(2, outbuf, (unsigned)(o - outbuf));
+    }
+    *o++ = '}';
+    rtf_put((unsigned)(o - outbuf));
+}
+
+/* name : tampon stable (rtfname) ; un premier passage a blanc donne la taille. */
+static unsigned char write_rtf(char *name)
+{
+    rtf_dry = 1;
+    rtf_tot = 0;
+    rtf_body();
+    rtf_dry = 0;
+    if (!fit_check(rtf_tot, name)) return 0;
+    disk_busy(1);
+    if (cbm_open(2, 8, 2, cmdname) == 0) {
+        rtf_body();
         cbm_close(2);
     }
     disk_busy(0);
-    if (disk_status() >= 20) show_disk_error();
+    if (disk_status() >= 20) { show_disk_error(); return 0; }
+    dirty = 0;
+    draw_status();
+    return 1;
 }
 
 static void save_rtf(void)
 {
-    char *buf = (char *)outbuf + 64;
-    strcpy(buf, filename);
-    if (!ask_text(S_SAVERTF, S_FILENAME, buf, 16, 1)) return;
-    if (!strchr(buf, '.') && strlen(buf) <= 12) strcat(buf, ".\x52\x54\x46");   /* ".rtf" en PETSCII */
-    write_rtf(buf);
+    strcpy(rtfname, filename);
+    if (!ask_name(S_SAVERTF, rtfname)) return;
+    if (!strchr(rtfname, '.') && strlen(rtfname) <= 12) strcat(rtfname, ".\x52\x54\x46");   /* ".rtf" en PETSCII */
+    if (write_rtf(rtfname)) {                   /* le document porte maintenant ce nom, en RTF */
+        strcpy(filename, rtfname);
+        rtf_doc = 1;
+        draw_status();
+    }
 }
 #endif
 
@@ -2305,9 +2515,9 @@ static unsigned char run_menu(unsigned char m)
     width = (width + 31) & 0xFFF8u;
     if (x0 + width + 8 > 320) x0 = 312 - width;
     xor_span(0, menu_x[m], menu_x[m + 1]);
-    panel(1, n, x0, width);
+    panel(1, n + 2, x0, width);                 /* une rangee vide en haut et en bas */
     for (i = 0; i < n; ++i) {
-        row = 1 + i;
+        row = 2 + i;
         put_text(x0 + 12, row, menu_items[m][i], 0);
         put_text(x0 + width - 8 - text_width(menu_keys[m][i], 0), row, menu_keys[m][i], 0);
         if (m == 2 && ((i && (style & (1 << (i - 1)))) || (!i && !style)) && !has_selection()) {
@@ -2319,10 +2529,10 @@ static unsigned char run_menu(unsigned char m)
         key = read_key();
         if (key == 3) break;
         row = mouse_y / 8;
-        i = (row >= 1 && row <= n && mouse_x >= x0 && mouse_x < x0 + width) ? row - 1 : 255;
+        i = (row >= 2 && row <= n + 1 && mouse_x >= x0 && mouse_x < x0 + width) ? row - 2 : 255;
         if (i != hover) {
-            if (hover != 255) xor_span(hover + 1, x0 + 2, x0 + width - 2);
-            if (i != 255) xor_span(i + 1, x0 + 2, x0 + width - 2);
+            if (hover != 255) xor_span(hover + 2, x0 + 2, x0 + width - 2);
+            if (i != 255) xor_span(i + 2, x0 + 2, x0 + width - 2);
             hover = i;
         }
         if (clicked) { choice = i; break; }
@@ -2332,7 +2542,7 @@ static unsigned char run_menu(unsigned char m)
     page_colors();
     draw_menubar();
     draw_status();
-    draw_lines(top, top + n);
+    draw_lines(top, top + n + 2);
     place_cursor();
     return choice;
 }
@@ -2345,7 +2555,12 @@ static void do_menu(unsigned char m, unsigned char item)
         if (item == 0 && (!dirty || message(S_NEW, S_LOSE, 0, 1))) { new_doc(); redraw_all(); }
         if (item == 1) open_doc();
         if (item == 2) save_doc();
-        if (item == 3 && ask_filename()) save_doc();
+        if (item == 3 && ask_filename()) {
+#ifdef RTF
+            rtf_doc = 0;
+#endif
+            save_doc();
+        }
 #ifdef RTF
         if (item == 4) {
             if (!reu_on) message(S_OPENRTF, S_NEEDREU, 0, 0);
@@ -2567,7 +2782,7 @@ static void handle_key(unsigned char k)
     case 0xA0: load_named(); redraw_all(); return;        /* le nom est dans filename (outil de test) */
 #ifdef RTF
     case 0x9E: load_rtf(); redraw_all(); return;          /* le nom est dans filename (outil de test) */
-    case 0x9F: strcpy((char *)outbuf + 64, "\x4F\x55\x54"); write_rtf((char *)outbuf + 64); return;       /* OUT */
+    case 0x9F: strcpy(rtfname, "\x4F\x55\x54"); write_rtf(rtfname); return;       /* OUT */
 #endif
     case 0x8E: {                         /* impression de test vers une somme */
         pr_sink = 1; pr_sum = pr_cnt = 0; print_ok = 1;
