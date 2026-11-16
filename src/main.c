@@ -153,9 +153,8 @@ extern unsigned char reu_addr[3];
 extern void reu_stash(void), reu_fetch(void);
 extern unsigned char reu_detect(void);
 #define ROOM     800                    /* place libre minimale dans la fenetre */
-#define FILL     (MAXDOC - 2 * ROOM)    /* remplissage apres un glissement */
+#define FILL     (MAXDOC - ROOM - 200)  /* remplissage apres un glissement */
 #define STEP     768                    /* taille mini du morceau qui quitte la fenetre */
-#define EDGE     30                     /* lignes entre le curseur et le bord avant de glisser */
 static unsigned char reu_on;
 static dpos win_base;                   /* position dans le document de text[0] */
 static dpos suf_len;                    /* octets apres la fenetre, dans le REU */
@@ -1237,6 +1236,7 @@ static void new_doc(void)
     layout_all();
 }
 
+#ifndef REU
 /* PLM1 (versions 1.0 et 1.1) : texte puis un octet de style par caractere.
    Le texte est lu en fin de tampon, puis fusionne au debut avec ses marqueurs. */
 static unsigned char load_plm1(unsigned n)
@@ -1260,6 +1260,7 @@ static unsigned char load_plm1(unsigned n)
     doclen = w;
     return 1;
 }
+#endif
 
 #ifdef REU
 /* ------------------------------------------------------------------ */
@@ -1375,11 +1376,11 @@ static void trim_lines(void)
 
 /* Remplit la fenetre depuis le suffixe jusqu'a FILL octets, en retordant a
    partir de la derniere ligne (elle s'arretait au bord de la fenetre). */
-static void pull_to(unsigned lim)
+static void pull_tail(void)
 {
     unsigned m, i;
-    if (doclen >= lim || !suf_len) return;
-    m = lim - doclen;
+    if (doclen >= FILL || !suf_len) return;
+    m = FILL - doclen;
     if (m > suf_len) m = (unsigned)suf_len;
     reu_move(1, text + doclen, suf_end - suf_len, m);
     suf_len -= m;
@@ -1388,7 +1389,6 @@ static void pull_to(unsigned lim)
     layout_from(i, lstart[i], lstyle[i]);
     trim_lines();
 }
-#define pull_tail() pull_to(FILL)
 
 /* Les L premieres lignes (L >= 1) sortent de la fenetre par le haut, vers le
    REU. Le curseur reste a l'ecran : il est au moins 25 lignes plus bas. */
@@ -1413,9 +1413,10 @@ static void drop_head(unsigned L)
 /* Vers la fin du document : le haut sort, la suite du suffixe entre. */
 static void slide_fwd(void)
 {
-    unsigned L, i = nlines - 1, cl = line_of(cursor);
+    unsigned L, i = nlines - 1, lim = top > 6 ? top - 6 : 0;      /* on ne touche pas aux lignes de l'ecran */
     for (L = 1; L < nlines && lstart[L] < STEP; ++L) ;
-    if (L + 25 > cl) L = 0; else drop_head(L);
+    if (L > lim) L = lim;
+    if (L) drop_head(L);
     pull_tail();
     draw_lines(i - L, nlines);
 }
@@ -1425,7 +1426,7 @@ static void slide_fwd(void)
    a change depuis, la mise en page de toute la fenetre en tient compte. */
 static void slide_back(void)
 {
-    unsigned len, T = nlines, cl = line_of(cursor), ts, nP;
+    unsigned len, T = nlines, ts, nP;
     unsigned char all, st;
     dpos s0;
     if (!win_base) return;
@@ -1435,7 +1436,7 @@ static void slide_back(void)
     st = style_at(s0);
     if (doclen + len > FILL) {
         while (T && lstart[T] + len > FILL) --T;
-        if (T < cl + 25) return;                /* le curseur est trop pres de la coupure */
+        if (T < top + VISIBLE + 2) return;      /* la coupure doit rester sous l'ecran */
         cut_tail(T);
     }
     ts = lstart[top] + len;
@@ -1486,7 +1487,7 @@ static void relocate(dpos B)
     win_style = st;
     lines_before = bpl ? B / bpl : 0;
     layout_all();
-    pull_to(MAXDOC - ROOM - 100);               /* apres un saut : de quoi remplir l'ecran et atteindre la fin */
+    pull_tail();
 }
 
 #ifdef REUTEST
@@ -1524,12 +1525,10 @@ static void dbg_state(void)
    et au moins ROOM octets libres. Le curseur ne bouge pas a l'ecran. */
 static void maybe_slide(void)
 {
-    unsigned cl;
     if (!reu_on) return;
-    cl = line_of(cursor);
-    if (MAXDOC - doclen < ROOM) { if (cl >= nlines / 2) slide_fwd(); else slide_back(); }
-    else if (suf_len && cl + EDGE > nlines) slide_fwd();
-    else if (win_base && cl < EDGE) slide_back();
+    if (MAXDOC - doclen < ROOM) { if (top >= 12) slide_fwd(); else slide_back(); }
+    else if (suf_len && top + VISIBLE + 8 > nlines) slide_fwd();       /* le bas de l'ecran approche la fin de la fenetre */
+    else if (win_base && top < 6) slide_back();                         /* le haut de l'ecran approche le debut */
     else {
 #ifdef REUTEST
         dbg_state();
@@ -1606,8 +1605,10 @@ static void load_named(void)
     if (!memcmp(head, "PLM2", 4) && n <= MAXDOC) {
         cbm_read(2, text, (unsigned)n);
         doclen = (unsigned)n;
+#ifndef REU
     } else if (!memcmp(head, "PLM1", 4) && n <= MAXDOC) {
         ok = load_plm1((unsigned)n);
+#endif
     } else {
         ok = 0;
     }
