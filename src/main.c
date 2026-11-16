@@ -73,7 +73,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    3300u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -1375,11 +1375,11 @@ static void trim_lines(void)
 
 /* Remplit la fenetre depuis le suffixe jusqu'a FILL octets, en retordant a
    partir de la derniere ligne (elle s'arretait au bord de la fenetre). */
-static void pull_tail(void)
+static void pull_to(unsigned lim)
 {
     unsigned m, i;
-    if (doclen >= FILL || !suf_len) return;
-    m = FILL - doclen;
+    if (doclen >= lim || !suf_len) return;
+    m = lim - doclen;
     if (m > suf_len) m = (unsigned)suf_len;
     reu_move(1, text + doclen, suf_end - suf_len, m);
     suf_len -= m;
@@ -1388,6 +1388,7 @@ static void pull_tail(void)
     layout_from(i, lstart[i], lstyle[i]);
     trim_lines();
 }
+#define pull_tail() pull_to(FILL)
 
 /* Les L premieres lignes (L >= 1) sortent de la fenetre par le haut, vers le
    REU. Le curseur reste a l'ecran : il est au moins 25 lignes plus bas. */
@@ -1485,7 +1486,7 @@ static void relocate(dpos B)
     win_style = st;
     lines_before = bpl ? B / bpl : 0;
     layout_all();
-    pull_tail();
+    pull_to(MAXDOC - ROOM - 100);               /* apres un saut : de quoi remplir l'ecran et atteindre la fin */
 }
 
 #ifdef REUTEST
@@ -1548,7 +1549,7 @@ static void maybe_slide(void)
 static void goto_global(dpos lo, dpos hi)
 {
     if (lo >= win_base && hi <= win_base + doclen) return;
-    relocate(para_start(lo > 1536 ? lo - 1536 : 0));
+    relocate(para_start(lo > 400 ? lo - 400 : 0));     /* 400 + un paragraphe (<= ~1200) doit tenir dans FILL */
 }
 
 /* PLM2 de n octets, trop grand pour la fenetre : tout le fichier va dans le
@@ -2175,9 +2176,11 @@ static void find_reu(unsigned char len)
         goto_global(fms, fme);
         anchor = NOSEL;
         cursor = top = 0;
+        draw_text_area();                       /* l'ecran montrait l'ancienne fenetre */
     }
     set_selection((unsigned)(fms - win_base), (unsigned)(fme - win_base));
     maybe_slide();
+    draw_text_area();
 }
 #endif
 
@@ -2817,14 +2820,17 @@ static void sbar_goto(unsigned y)
         goto_global(g, g);
         anchor = NOSEL;
         L = line_of((unsigned)(g - win_base));
-        if (!suf_len && L + VISIBLE > nlines) L = nlines > VISIBLE ? nlines - VISIBLE : 0;
     }
     cursor = lstart[L];
     top = L;
+    maybe_slide();                              /* la fenetre peut glisser : d'abord elle, puis l'ecran */
+    if (!suf_len && nlines > VISIBLE && top + VISIBLE > nlines) {      /* fin du document : derniere page pleine */
+        top = nlines - VISIBLE;
+        cursor = lstart[top];
+    }
     draw_text_area();
     place_cursor();
     cursor_moved();
-    maybe_slide();
 }
 
 /* Clic ou glissement : le curseur suit la souris tout de suite, le texte
