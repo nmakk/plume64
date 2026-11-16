@@ -73,6 +73,17 @@ L'édition hongroise est l'œuvre de **mkckOner**, qui a dessiné les lettres et
 
 Sous `C=`, Plume lit la matrice du clavier lui-même : le KERNAL ne sait pas faire `Shift` + `C=`. Toutes les éditions affichent et impriment ces lettres ; en mode Texte, l'imprimante écrit la lettre sans accent (ő donne o).
 
+### Version REU (documents jusqu'à 16 Mo, RTF)
+
+`make` produit aussi `build/plume-fr-reu.crt`, `plume-en-reu.crt`, `plume-dk-reu.crt` et `plume-hu-reu.crt` (cartouche Magic Desk). Elles demandent une extension REU d'au moins 256 Ko (sur un C64 Ultimate : REU 16 Mo activée) et gardent tout le document dans le REU : jusqu'à 16 Mo, au lieu de 20 000 caractères. Le texte est affiché par une fenêtre glissante de 4 400 octets.
+
+- **Fichiers RTF** : *File → Open RTF…* lit un fichier RTF (Word, LibreOffice : gras, italique, souligné, accents cp1252 et `\uN?`) et *Save as RTF…* l'écrit. Un document de 250 Ko (un roman) tient sur une disquette `.d81`, pas sur un `.d64`.
+- **Documents de plus de 64 Ko** : enregistrés au format PLM3 (les anciens PLM1/PLM2 restent lisibles ; les éditions sans REU ne lisent pas PLM3).
+- **Barre de défilement** à droite, recherche dans tout le document, impression par morceaux.
+- **Disque** : pendant les accès disque Plume masque les sprites, sinon JiffyDOS retombe en transfert série lent. Avec JiffyDOS : environ 3 Ko/s en lecture.
+- Depuis un Mac : [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) et [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) téléchargent et déposent des fichiers dans une image disque sur un C64 Ultimate (FTP + `c1541`).
+- Limites : `\ansicpg1250` (ő ű en `\'f5`) n'est pas traité ; charger un très gros fichier par l'IEC est très lent.
+
 ### Joystick
 
 Sans souris, par exemple sur un C64 d'origine avec une Kung Fu Flash, un joystick sur le port 2 (ou le port 1) déplace le pointeur. Il avance d'un pixel par image pour viser une lettre, puis accélère si l'on garde le manche poussé. Le bouton de tir sert de clic. Gardez-le enfoncé en bougeant le manche pour sélectionner du texte. Le port 2 est conseillé : le port 1 partage ses fils avec le clavier, donc Plume ignore le clavier quand le joystick du port 1 bouge.
@@ -148,6 +159,8 @@ Les cartouches sont dans `build/plume-fr.crt`, `build/plume-en.crt`, `build/plum
 **Danish edition** (`dist/plume-dk.crt`, English menus): `:` `;` `@` type æ ø å, and with `Shift` Æ Ø Å; `Shift` + `.` and `Shift` + `,` give `:` and `;`; `C=` + `@` gives `@`. `<`, `>`, `[` and `]` are not available in this edition. Every edition displays and prints æ ø å Æ Ø Å (the printer's Text mode prints them as a, o, a).
 
 **Hungarian edition** (`dist/plume-hu.crt`, English menus): the `C=` layer follows the `AltGr` positions of the Hungarian Programmers layout (`hu_prog`) on a QWERTY base: `C=`+`E`/`Y`/`U`/`I` give é/ü/ú/í, `C=`+`O`/`P`/`Q`/`W` give ó/ö/ő/ű, `C=`+`A` gives á. Hold `Shift` as well for É Ü Ú Í Ó Ö Ő Ű Á. The Hungarian edition was created by **mkckOner**, who drew the letters and wrote the keyboard code.
+
+**REU edition (documents up to 16 MB, RTF)**: `make` also builds `build/plume-fr-reu.crt`, `plume-en-reu.crt`, `plume-dk-reu.crt` and `plume-hu-reu.crt` (Magic Desk cartridge). They need a REU of at least 256 KB (on a C64 Ultimate: enable the 16 MB REU) and keep the whole document in the REU: up to 16 MB instead of 20,000 characters, shown through a sliding 4,400-byte window. *File → Open RTF…* reads an RTF file (Word, LibreOffice: bold, italic, underline, cp1252 accents and `\uN?`) and *Save as RTF…* writes one. A 250 KB document (a novel) fits a `.d81` disk, not a `.d64`. Documents over 64 KB are saved as PLM3 (older PLM1/PLM2 stay readable; non-REU editions cannot read PLM3). Also a scrollbar, search over the whole document and chunked printing. During disk access Plume hides the sprites, otherwise JiffyDOS falls back to slow serial transfer (about 3 KB/s reading with JiffyDOS). From a Mac, [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) and [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) fetch and store files in a disk image on a C64 Ultimate (FTP + `c1541`). Not handled: `\ansicpg1250` (ő ű as `\'f5`); loading a very large file over IEC is very slow.
 
 Keys: `F1` save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `RUN/STOP` cancels. Accented letters use `C=` plus a letter (see the table above): `C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç. In every edition, `C=`+`-` types an underscore `_`.
 
