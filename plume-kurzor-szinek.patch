@@ -1,0 +1,419 @@
+diff --git a/src/gfx.s b/src/gfx.s
+index 243a704..36d97bc 100644
+--- a/src/gfx.s
++++ b/src/gfx.s
+@@ -557,3 +557,260 @@ _joy_p1: .res 1
+         ldx #0
+         rts
+ .endproc
++
++; Curseur bloc inverse : recopie le caractere sous le curseur (8 lignes de
++; _cur_addr, decalees de _cur_sh points, largeur _cur_w) dans le sprite 1
++; ($C040) et un bloc plein de meme largeur dans le sprite 2 ($CBC0).
++        .export _cur_sample, _cur_addr, _cur_sh, _cur_st, _cur_ptr, _cur_n
++        .bss
++_cur_addr: .res 2
++_cur_sh:   .res 1
++_cur_st:   .res 1       ; style avant le curseur
++_cur_ptr:  .res 2       ; text + curseur
++_cur_n:    .res 2       ; octets restants (doclen - curseur)
++cur_w:     .res 1
++cm0:       .res 1
++cm1:       .res 1
++cv0:       .res 1
++cv1:       .res 1
++cv2:       .res 1
++        .code
++_cur_sample:
++        lda #7                  ; fin de ligne ou de texte : bloc de 7 points
++        sta cur_w
++        lda _cur_ptr
++        sta ptr1
++        lda _cur_ptr+1
++        sta ptr1+1
++        ldy #0
++@w:     lda _cur_n              ; saute les marqueurs de style ($10-$17)
++        ora _cur_n+1
++        beq @wd
++        lda (ptr1),y
++        tax
++        and #$F8
++        cmp #$10
++        bne @ch
++        txa
++        and #7
++        sta _cur_st
++        inc ptr1
++        bne :+
++        inc ptr1+1
++:       lda _cur_n
++        bne :+
++        dec _cur_n+1
++:       dec _cur_n
++        jmp @w
++@ch:    cpx #13
++        beq @wd
++        lda _font_width-32,x    ; largeur, +1 en gras
++        sta cur_w
++        lda _cur_st
++        and #STYLE_BOLD
++        clc
++        adc cur_w
++        sta cur_w
++@wd:    lda #0
++        sta cm0
++        sta cm1
++        ldx cur_w
++@m:     sec                     ; masque : _cur_w bits a gauche
++        ror cm0
++        ror cm1
++        dex
++        bne @m
++        lda _cur_addr
++        sta ptr1
++        lda _cur_addr+1
++        sta ptr1+1
++        sei
++        lda #$34                ; bitmap sous la ROM KERNAL
++        sta $01
++        ldx #0
++        ldy #0
++@row:   lda (ptr1),y            ; carte, carte+8, carte+16
++        sta cv0
++        tya
++        ora #8
++        tay
++        lda (ptr1),y
++        sta cv1
++        tya
++        eor #$18
++        tay
++        lda (ptr1),y
++        sta cv2
++        tya
++        and #7
++        tay
++        lda _cur_sh
++        sta tmp1
++        beq @put
++@sh:    asl cv2
++        rol cv1
++        rol cv0
++        dec tmp1
++        bne @sh
++@put:   lda cv0
++        and cm0
++        sta $C040,x
++        lda cv1
++        and cm1
++        sta $C041,x
++        lda cm0
++        sta $CBC0,x
++        lda cm1
++        sta $CBC1,x
++        inx
++        inx
++        inx
++        iny
++        cpy #8
++        bne @row
++        lda #$36
++        sta $01
++        cli
++        rts
++
++; CTRL+0 : jeu de couleurs suivant. _set_theme applique _theme_no.
++        .export _next_theme, _set_theme, _col, _theme_no
++        .import _themes
++        .bss
++_col:      .res 5       ; page, barres, marges, bord, fleche
++_theme_no: .res 1
++        .code
++_next_theme:
++        ldx _theme_no
++        inx
++        cpx #4
++        bcc :+
++        ldx #0
++:       stx _theme_no
++_set_theme:
++        lda _theme_no
++        asl a
++        asl a
++        adc _theme_no           ; * 5
++        tax
++        ldy #0
++@c:     lda _themes,x
++        sta _col,y
++        inx
++        iny
++        cpy #5
++        bne @c
++        lda _col+3
++        sta $D020
++        lda _col+4
++        sta $D027               ; fleche
++        lda _col
++        sta $D028               ; lettre du curseur : fond de la page
++        lsr a
++        lsr a
++        lsr a
++        lsr a
++        sta $D029               ; bloc du curseur : encre de la page
++        rts
++
++; Position, extinction et clignotement du curseur.
++        .export _cur_place, _cursor_off, _blink_cursor, _cur_row, _cur_px
++        .import _cursor_sample, _anchor, _cursor
++        .bss
++_cur_row:  .res 1       ; rangee de cartes
++_cur_px:   .res 2       ; x en points
++shown:     .res 1
++stale:     .res 1       ; forme a relire avant d'allumer
++blink_t:   .res 1
++        .code
++; Place les sprites 1 et 2 en _cur_row/_cur_px et calcule l'adresse lue par
++; _cur_sample. Le curseur s'eteint et repart visible au prochain passage.
++_cur_place:
++        lda _cur_px
++        and #7
++        sta _cur_sh
++        lda _cur_row            ; adresse : $E000 + rangee * 320 + carte
++        sta tmp1
++        lda #0
++        sta tmp2
++        ldx #6
++@s:     asl tmp1
++        rol tmp2
++        dex
++        bne @s
++        lda _cur_px
++        and #$F8
++        clc
++        adc tmp1
++        sta _cur_addr
++        lda _cur_px+1
++        adc tmp2
++        adc _cur_row
++        adc #$E0
++        sta _cur_addr+1
++        lda _cur_px             ; x sprite = x + 24
++        clc
++        adc #24
++        sta $D002
++        sta $D004
++        lda _cur_px+1
++        adc #0
++        beq @lo
++        lda $D010
++        ora #$06
++        bne @hx
++@lo:    lda $D010
++        and #$F9
++@hx:    sta $D010
++        lda _cur_row            ; y sprite = rangee * 8 + 50
++        asl a
++        asl a
++        asl a
++        adc #50
++        sta $D003
++        sta $D005
++        lda #1
++        sta stale
++        lda $A2
++        sta blink_t
++_cursor_off:
++        lda $D015
++        and #$F9
++        sta $D015
++        lda #0
++        sta shown
++        rts
++
++; Allume pres d'une demi-seconde, eteint autant ; cache pendant une selection.
++_blink_cursor:
++        lda _anchor
++        and _anchor+1
++        cmp #$FF
++        beq @nosel
++        lda _anchor
++        cmp _cursor
++        bne @off
++        lda _anchor+1
++        cmp _cursor+1
++        bne @off
++@nosel: lda $A2
++        sec
++        sbc blink_t
++        and #$20
++        bne @off
++        lda shown
++        bne @done
++        lda stale
++        beq @on
++        jsr _cursor_sample
++        lda #0
++        sta stale
++@on:    lda $D015
++        ora #$06
++        sta $D015
++        lda #1
++        sta shown
++@done:  rts
++@off:   lda shown
++        bne _cursor_off
++        rts
+diff --git a/src/main.c b/src/main.c
+index 09208e9..53c67d6 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -24,6 +24,18 @@ unsigned next_line_asm(void);
+ extern unsigned nl_pos;
+ extern unsigned char nl_style;
+ extern const unsigned char font_width[];
++extern unsigned cur_addr, cur_n;
++extern unsigned char cur_sh, cur_st;
++extern unsigned char *cur_ptr;
++void cur_sample(void);
++extern unsigned char cur_row;
++extern unsigned cur_px;
++void cur_place(void);
++void cursor_off(void);
++void blink_cursor(void);
++extern unsigned char col[5], theme_no;
++void set_theme(void);
++void next_theme(void);
+ 
+ #define BOLD      0x01
+ #define ITALIC    0x02
+@@ -77,9 +89,18 @@ extern const unsigned char font_width[];
+ #define MAILBOX   ((volatile unsigned char *)0x02A7)
+ 
+ /* Couleurs : fond (4 bits bas) et encre (4 bits hauts). */
+-#define COL_PAGE   0x01
+-#define COL_BAR    0x0F
+-#define COL_MARGIN 0x0C
++#define COL_PAGE   col[0]
++#define COL_BAR    col[1]
++#define COL_MARGIN col[2]
++/* Jeux de couleurs, CTRL+0 passe au suivant : page, barres, marges, bord,
++   fleche. Le curseur prend l'encre (bloc) et le fond (lettre) de la page. */
++#define NTHEMES 4
++const unsigned char themes[NTHEMES][5] = {
++    { 0x01, 0x0F, 0x0C, COLOR_GRAY1, COLOR_BLACK },     /* noir sur blanc */
++    { 0xD0, 0x0D, 0x0B, COLOR_BLACK, COLOR_WHITE },     /* vert sur noir */
++    { 0xE6, 0x6E, 0x06, COLOR_LIGHTBLUE, COLOR_WHITE }, /* bleu Commodore */
++    { 0x70, 0x07, 0x0B, COLOR_BLACK, COLOR_WHITE },     /* jaune sur noir */
++};
+ 
+ unsigned char text[MAXDOC];               /* exporte pour next_line_asm */
+ /* Tampon d'impression : une ligne du mode Texte, ou la sortie d'une passe du
+@@ -90,8 +111,8 @@ static unsigned nlines;
+ static unsigned relayout_last;
+ static unsigned relayout_from;          /* premiere ligne dont le contenu change */
+ static unsigned top;
+-static unsigned cursor;
+-static unsigned anchor = NOSEL;
++unsigned cursor;                          /* exportes pour gfx.s */
++unsigned anchor = NOSEL;
+ static unsigned char style;
+ static unsigned char dirty;
+ static unsigned cliplen;
+@@ -349,12 +370,13 @@ static unsigned cursor_x(void)
+     return x;
+ }
+ 
+-static unsigned char cursor_shown;
+-
++/* Curseur : bloc inverse a la Commodore sur le caractere qui suit la position
++   d'insertion. Sprite 1 (blanc) : points du caractere relus dans le bitmap ;
++   sprite 2 (noir, bloc 47 en $CBC0, libre apres lstyle) : fond plein, dessous. */
++#define CUR_BLOCK  ((unsigned char *)0xCBC0)
+ static void place_cursor(void)
+ {
+-    unsigned i = line_of(cursor), x;
+-    unsigned char row;
++    unsigned i = line_of(cursor);
+     if (i + 1 == top) {                         /* une ligne plus haut : decale l'image */
+         bm_move(ROWBASE(TEXT_ROW0 + 1), ROWBASE(TEXT_ROW0), (VISIBLE - 1) * 320u);
+         top = i;
+@@ -365,19 +387,18 @@ static void place_cursor(void)
+         draw_line(i);
+     } else if (i < top) { top = i; draw_text_area(); }
+     else if (i >= top + VISIBLE) { top = i - VISIBLE + 1; draw_text_area(); }
+-    row = (unsigned char)(TEXT_ROW0 + i - top);
+-    x = TEXT_X0 + cursor_x() + 24;
+-    VIC.spr1_x = (unsigned char)x;
+-    if (x > 255) VIC.spr_hi_x |= 0x02; else VIC.spr_hi_x &= 0xFD;
+-    VIC.spr1_y = (unsigned char)(row * 8 + 50);
+-    cursor_shown = 1;
++    cur_row = (unsigned char)(TEXT_ROW0 + i - top);
++    cur_px = TEXT_X0 + cursor_x();
++    cur_place();                                /* forme relue a l'allumage */
+ }
+ 
+-static void blink_cursor(void)
++/* Copie du caractere sous le curseur (largeur cherchee dans gfx.s). */
++void cursor_sample(void)
+ {
+-    unsigned char on = (anchor == NOSEL || anchor == cursor) && (PEEK(0xA2) & 0x20);
+-    if (cursor_shown && !on) { VIC.spr_ena &= 0xFD; cursor_shown = 0; }
+-    else if (!cursor_shown && on) { VIC.spr_ena |= 0x02; cursor_shown = 1; }
++    cur_st = style_before(cursor);
++    cur_ptr = text + cursor;
++    cur_n = doclen - cursor;
++    cur_sample();
+ }
+ 
+ /* ------------------------------------------------------------------ */
+@@ -489,6 +510,7 @@ static void redraw_all(void)
+ static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
+ {
+     unsigned char r;
++    cursor_off();
+     for (r = row; r < row + rows; ++r) {
+         color_cells(r, (unsigned char)(x / 8), (unsigned char)(w / 8 + 1), COL_PAGE);
+         clear_cells(r, x, w);
+@@ -1536,6 +1558,7 @@ static void handle_key(unsigned char k)
+     case 0x8A: paste(); return;
+     case 0x8B: cut_selection(); return;
+     case 0x8C: find_next(); return;
++    case 0x92: next_theme(); redraw_all(); return;     /* CTRL+0 : couleurs */
+     default:
+         c = translate(k);
+         if (c) insert_char(c);
+@@ -1578,7 +1601,7 @@ static void handle_click(void)
+ }
+ 
+ /* ------------------------------------------------------------------ */
+-/* Sprites : fleche (sprite 0) et curseur texte (sprite 1)             */
++/* Sprites : fleche (sprite 0) et curseur texte (sprites 1 et 2)       */
+ 
+ static const unsigned char arrow[] = {
+     0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xF8, 0xD8, 0x8C, 0x0C, 0x06, 0x06
+@@ -1589,12 +1612,11 @@ static void sprites_init(void)
+     unsigned char i, *spr = (unsigned char *)0xC000;
+     memset(spr, 0, 128);
+     for (i = 0; i < sizeof arrow; ++i) spr[i * 3] = arrow[i];
+-    for (i = 0; i < 8; ++i) spr[64 + i * 3] = 0xC0;
++    memset(CUR_BLOCK, 0, 64);
+     *(unsigned char *)0xCFF8 = 0;
+     *(unsigned char *)0xCFF9 = 1;
+-    VIC.spr0_color = COLOR_BLACK;
+-    VIC.spr1_color = COLOR_BLUE;
+-    VIC.spr_ena = 0x03;
++    *(unsigned char *)0xCFFA = 47;              /* $CBC0, libre apres lstyle */
++    VIC.spr_ena = 0x01;
+ }
+ 
+ void main(void)
+@@ -1605,8 +1627,8 @@ void main(void)
+     hu_last = 0xFF;                     /* aucune touche de la couche vue */
+ #endif                            /* tampon cassette : pas remis a zero */
+     gfx_init();
+-    VIC.bordercolor = COLOR_GRAY1;
+     sprites_init();
++    set_theme();
+     mouse_install(&mouse_def_callbacks, mouse_static_stddrv);
+     mouse_show();
+     new_doc();

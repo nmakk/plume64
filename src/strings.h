@@ -52,6 +52,10 @@
 #define S_FULL       "Document full."
 #define S_CLIPFULL   "Selection too long to copy."
 #define S_BADFILE    "Not a Plume document."
+#define S_OPENRTF    "Open RTF..."
+#define S_SAVERTF    "Save as RTF..."
+#define S_NEEDREU    "No REU found."
+#define S_BADRTF     "Not an RTF file."
 #ifdef KBD_DK
 #define S_ABOUT1     "Plume 2.2 DK, word processor"
 #elif defined KBD_HU
@@ -104,6 +108,10 @@
 #define S_FULL       "Document plein."
 #define S_CLIPFULL   "S" C_EAIGU "lection trop longue pour la copie."
 #define S_BADFILE    "Ce n'est pas un document Plume."
+#define S_OPENRTF    "Ouvrir RTF..."
+#define S_SAVERTF    "Enregistrer en RTF..."
+#define S_NEEDREU    "Pas de REU d" C_EAIGU "tect" C_EAIGU "e."
+#define S_BADRTF     "Ce n'est pas un fichier RTF."
 #define S_ABOUT1     "Plume 2.2, traitement de texte"
 #define S_ABOUT2     "pour Commodore 64."
 #define S_ABOUT3     "2026 par LABBEJ27."

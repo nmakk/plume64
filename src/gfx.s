@@ -557,3 +557,260 @@ _joy_p1: .res 1
         ldx #0
         rts
 .endproc
+
+; Curseur bloc inverse : recopie le caractere sous le curseur (8 lignes de
+; _cur_addr, decalees de _cur_sh points, largeur _cur_w) dans le sprite 1
+; ($C040) et un bloc plein de meme largeur dans le sprite 2 ($CBC0).
+        .export _cur_sample, _cur_addr, _cur_sh, _cur_st, _cur_ptr, _cur_n
+        .bss
+_cur_addr: .res 2
+_cur_sh:   .res 1
+_cur_st:   .res 1       ; style avant le curseur
+_cur_ptr:  .res 2       ; text + curseur
+_cur_n:    .res 2       ; octets restants (doclen - curseur)
+cur_w:     .res 1
+cm0:       .res 1
+cm1:       .res 1
+cv0:       .res 1
+cv1:       .res 1
+cv2:       .res 1
+        .code
+_cur_sample:
+        lda #7                  ; fin de ligne ou de texte : bloc de 7 points
+        sta cur_w
+        lda _cur_ptr
+        sta ptr1
+        lda _cur_ptr+1
+        sta ptr1+1
+        ldy #0
+@w:     lda _cur_n              ; saute les marqueurs de style ($10-$17)
+        ora _cur_n+1
+        beq @wd
+        lda (ptr1),y
+        tax
+        and #$F8
+        cmp #$10
+        bne @ch
+        txa
+        and #7
+        sta _cur_st
+        inc ptr1
+        bne :+
+        inc ptr1+1
+:       lda _cur_n
+        bne :+
+        dec _cur_n+1
+:       dec _cur_n
+        jmp @w
+@ch:    cpx #13
+        beq @wd
+        lda _font_width-32,x    ; largeur, +1 en gras
+        sta cur_w
+        lda _cur_st
+        and #STYLE_BOLD
+        clc
+        adc cur_w
+        sta cur_w
+@wd:    lda #0
+        sta cm0
+        sta cm1
+        ldx cur_w
+@m:     sec                     ; masque : _cur_w bits a gauche
+        ror cm0
+        ror cm1
+        dex
+        bne @m
+        lda _cur_addr
+        sta ptr1
+        lda _cur_addr+1
+        sta ptr1+1
+        sei
+        lda #$34                ; bitmap sous la ROM KERNAL
+        sta $01
+        ldx #0
+        ldy #0
+@row:   lda (ptr1),y            ; carte, carte+8, carte+16
+        sta cv0
+        tya
+        ora #8
+        tay
+        lda (ptr1),y
+        sta cv1
+        tya
+        eor #$18
+        tay
+        lda (ptr1),y
+        sta cv2
+        tya
+        and #7
+        tay
+        lda _cur_sh
+        sta tmp1
+        beq @put
+@sh:    asl cv2
+        rol cv1
+        rol cv0
+        dec tmp1
+        bne @sh
+@put:   lda cv0
+        and cm0
+        sta $C040,x
+        lda cv1
+        and cm1
+        sta $C041,x
+        lda cm0
+        sta $CBC0,x
+        lda cm1
+        sta $CBC1,x
+        inx
+        inx
+        inx
+        iny
+        cpy #8
+        bne @row
+        lda #$36
+        sta $01
+        cli
+        rts
+
+; CTRL+0 : jeu de couleurs suivant. _set_theme applique _theme_no.
+        .export _next_theme, _set_theme, _col, _theme_no
+        .import _themes
+        .bss
+_col:      .res 5       ; page, barres, marges, bord, fleche
+_theme_no: .res 1
+        .code
+_next_theme:
+        ldx _theme_no
+        inx
+        cpx #4
+        bcc :+
+        ldx #0
+:       stx _theme_no
+_set_theme:
+        lda _theme_no
+        asl a
+        asl a
+        adc _theme_no           ; * 5
+        tax
+        ldy #0
+@c:     lda _themes,x
+        sta _col,y
+        inx
+        iny
+        cpy #5
+        bne @c
+        lda _col+3
+        sta $D020
+        lda _col+4
+        sta $D027               ; fleche
+        lda _col
+        sta $D028               ; lettre du curseur : fond de la page
+        lsr a
+        lsr a
+        lsr a
+        lsr a
+        sta $D029               ; bloc du curseur : encre de la page
+        rts
+
+; Position, extinction et clignotement du curseur.
+        .export _cur_place, _cursor_off, _blink_cursor, _cur_row, _cur_px
+        .import _cursor_sample, _anchor, _cursor
+        .bss
+_cur_row:  .res 1       ; rangee de cartes
+_cur_px:   .res 2       ; x en points
+shown:     .res 1
+stale:     .res 1       ; forme a relire avant d'allumer
+blink_t:   .res 1
+        .code
+; Place les sprites 1 et 2 en _cur_row/_cur_px et calcule l'adresse lue par
+; _cur_sample. Le curseur s'eteint et repart visible au prochain passage.
+_cur_place:
+        lda _cur_px
+        and #7
+        sta _cur_sh
+        lda _cur_row            ; adresse : $E000 + rangee * 320 + carte
+        sta tmp1
+        lda #0
+        sta tmp2
+        ldx #6
+@s:     asl tmp1
+        rol tmp2
+        dex
+        bne @s
+        lda _cur_px
+        and #$F8
+        clc
+        adc tmp1
+        sta _cur_addr
+        lda _cur_px+1
+        adc tmp2
+        adc _cur_row
+        adc #$E0
+        sta _cur_addr+1
+        lda _cur_px             ; x sprite = x + 24
+        clc
+        adc #24
+        sta $D002
+        sta $D004
+        lda _cur_px+1
+        adc #0
+        beq @lo
+        lda $D010
+        ora #$06
+        bne @hx
+@lo:    lda $D010
+        and #$F9
+@hx:    sta $D010
+        lda _cur_row            ; y sprite = rangee * 8 + 50
+        asl a
+        asl a
+        asl a
+        adc #50
+        sta $D003
+        sta $D005
+        lda #1
+        sta stale
+        lda $A2
+        sta blink_t
+_cursor_off:
+        lda $D015
+        and #$F9
+        sta $D015
+        lda #0
+        sta shown
+        rts
+
+; Allume pres d'une demi-seconde, eteint autant ; cache pendant une selection.
+_blink_cursor:
+        lda _anchor
+        and _anchor+1
+        cmp #$FF
+        beq @nosel
+        lda _anchor
+        cmp _cursor
+        bne @off
+        lda _anchor+1
+        cmp _cursor+1
+        bne @off
+@nosel: lda $A2
+        sec
+        sbc blink_t
+        and #$20
+        bne @off
+        lda shown
+        bne @done
+        lda stale
+        beq @on
+        jsr _cursor_sample
+        lda #0
+        sta stale
+@on:    lda $D015
+        ora #$06
+        sta $D015
+        lda #1
+        sta shown
+@done:  rts
+@off:   lda shown
+        bne _cursor_off
+        rts
