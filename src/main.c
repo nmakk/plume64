@@ -1213,6 +1213,7 @@ static void save_doc(void)
     disk_busy(0);
     if (disk_status() >= 20) { show_disk_error(); return; }
     dirty = 0;
+    shown_dirty = 255;                          /* le titre (le nom) se redessine toujours */
     draw_status();
 }
 
@@ -2499,6 +2500,7 @@ static void save_rtf(void)
     if (write_rtf(rtfname)) {                   /* le document porte maintenant ce nom, en RTF */
         strcpy(filename, rtfname);
         rtf_doc = 1;
+        shown_dirty = 255;
         draw_status();
     }
 }
@@ -2760,12 +2762,30 @@ static void cursor_moved(void)
     draw_status();
 }
 
+/* Billentyuklik : un clic de bruit (voix 1). L'enveloppe (attaque 0, decroissance
+   courte, tenue 0) s'eteint toute seule. */
+#define CLICK_NOISE_FREQ  0x58          /* octet haut de la frequence du bruit */
+#define CLICK_NOISE_DECAY 0x00          /* 0 = 6 ms, 1 = 24 ms, 2 = 48 ms */
+#define CLICK_VOLUME      15
+static unsigned char sound_on = 1;
+
+static void key_click(void)
+{
+    if (!sound_on) return;
+    POKE(0xD418, CLICK_VOLUME);
+    POKE(0xD401, CLICK_NOISE_FREQ);
+    POKE(0xD405, CLICK_NOISE_DECAY);
+    POKE(0xD406, 0);
+    POKE(0xD404, 0x80);                 /* porte fermee puis ouverte : rearme l'enveloppe */
+    POKE(0xD404, 0x81);                 /* bruit */
+}
+
 static void handle_key(unsigned char k)
 {
     unsigned char c;
     switch (k) {
-    case CR:   insert_char(CR); return;
-    case 0x14: delete_before(); return;
+    case CR:   key_click(); insert_char(CR); return;
+    case 0x14: key_click(); delete_before(); return;
     case 0x1D: clear_selection(); move_right(); break;
     case 0x9D: clear_selection(); move_left(); break;
     case 0x11: clear_selection(); move_vertical(1); break;
@@ -2781,6 +2801,7 @@ static void handle_key(unsigned char k)
     case 0x8B: cut_selection(); return;
     case 0x8C: find_next(); return;
     case 0x92: next_theme(); redraw_all(); return;     /* CTRL+0 : couleurs */
+    case 0x12: sound_on ^= 1; key_click(); return;      /* CTRL+9 : clic de touche oui / non */
 #ifdef REUTEST
     case 0x8D: print_doc(1); return;
     case 0xA0: load_named(); redraw_all(); return;        /* le nom est dans filename (outil de test) */
@@ -2798,7 +2819,7 @@ static void handle_key(unsigned char k)
 #endif
     default:
         c = translate(k);
-        if (c) insert_char(c);
+        if (c) { key_click(); insert_char(c); }
         return;
     }
     cursor_moved();
