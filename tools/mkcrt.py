@@ -34,5 +34,7 @@ if not magic_desk:
     crt += chip(0, 0xA000, rom[BANK:])
 for n, i in enumerate(range(0, len(body), BANK)):
     crt += chip(1 + n, 0x8000, body[i:i + BANK])
+if magic_desk and len(sys.argv) > 6:             # recouvrement des leds (src/led.s), banque 62
+    crt += chip(62, 0x8000, open(sys.argv[6], "rb").read())
 open(out, "wb").write(crt)
 print(f"{out} : {1 + (len(body) + BANK - 1) // BANK} banques, programme de {len(body)} octets")

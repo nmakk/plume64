@@ -36,6 +36,9 @@ void blink_cursor(void);
 extern unsigned char col[5], theme_no;
 void set_theme(void);
 void next_theme(void);
+#ifdef REU
+void __fastcall__ led_theme(unsigned char t);
+#endif
 
 #if defined(REU) && !defined(NORTF)
 #define RTF                     /* import / export RTF (build REU) */
@@ -714,7 +717,7 @@ static unsigned char mouse_y, clicked, extend, held, last_buttons;
 /* Joystick : le pointeur avance d'un pixel par image, puis accelere. */
 unsigned char joy_read(void);
 extern unsigned char joy_p1;
-static unsigned char joy_speed, joy_tick, joy_p1_time;
+static unsigned char joy_speed, joy_tick, joy_p1_time, wheel, wheel_last, wheel_t, wheel_n;
 
 static void poll_mouse(void)
 {
@@ -743,6 +746,20 @@ static void poll_mouse(void)
     mouse_y = (unsigned char)mi.pos.y;
     j = joy_read();
     if (joy_p1) joy_p1_time = PEEK(0xA2);
+    /* Molette de la souris USB (mode Mouse + Wheel du C64U) : impulsions gauche (haut) / droite (bas)
+       sur le port 1, avec du bruit 0x1F ; elles ne bougent pas le pointeur. */
+    if (joy_p1 == 4 || joy_p1 == 8 || joy_p1 == 0x1F) {
+        /* une impulsion (bit 2 ou 3, avec du bruit 0x1F) = une ligne ; le nombre d'impulsions par cran
+           se regle sur le C64U : Mouse Wheel Sensitivity */
+        if (joy_p1 != 0x1F && joy_p1 != wheel_last) {
+            wheel_last = joy_p1;
+            wheel = joy_p1;
+            s = PEEK(0xA2) - wheel_t;               /* acceleration : crans rapproches = plus de lignes */
+            wheel_t = PEEK(0xA2);
+            wheel_n = s < 3 ? 8 : s < 6 ? 4 : s < 12 ? 2 : 1;
+        }
+        j = 0;
+    } else wheel_last = 0;
     if (!(j & 0x0F)) joy_speed = 0;
     else if (PEEK(0xA2) != joy_tick) {
         joy_tick = PEEK(0xA2);
@@ -2800,7 +2817,11 @@ static void handle_key(unsigned char k)
     case 0x8A: paste(); return;
     case 0x8B: cut_selection(); return;
     case 0x8C: find_next(); return;
-    case 0x92: next_theme(); redraw_all(); return;     /* CTRL+0 : couleurs */
+    case 0x92: next_theme(); redraw_all();             /* CTRL+0 : couleurs */
+#ifdef REU
+        led_theme(theme_no);                            /* et les leds du C64U */
+#endif
+        return;
     case 0x12: sound_on ^= 1; key_click(); return;      /* CTRL+9 : clic de touche oui / non */
 #ifdef REUTEST
     case 0x8D: print_doc(1); return;
@@ -2992,6 +3013,13 @@ void main(void)
     *(unsigned *)0x02AD = (unsigned)&doclen;
     for (;;) {
         poll_mouse();
+        if (wheel) {
+            for (; wheel_n; --wheel_n) handle_key(wheel == 4 ? 0x91 : 0x11);
+            wheel = 0;
+#ifdef REU
+            maybe_slide();
+#endif
+        }
         if (clicked) {
             handle_click();
 #ifdef REU

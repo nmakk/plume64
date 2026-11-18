@@ -41,10 +41,14 @@ $(eval $(call REU_RULE,en,-DLANG_EN))
 $(eval $(call REU_RULE,dk,-DLANG_EN -DKBD_DK))
 $(eval $(call REU_RULE,hu,-DLANG_EN -DKBD_HU))
 
-build/plume-%-reu.crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py
+build/led.bin: src/led.s src/led.cfg
+	ca65 -o build/led.o src/led.s
+	ld65 -C src/led.cfg -o build/led.bin build/led.o
+
+build/plume-%-reu.crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
-	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME $* REU" md
+	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME $* REU" md build/led.bin
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*.o crt.s

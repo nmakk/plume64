@@ -94,3 +94,51 @@ _reu_detect:
         rts
 no:     lda #0
         rts
+
+; led_theme(theme) : couleur des leds selon le theme. Le code (src/led.s) est dans la
+; banque 62 de la cartouche Magic Desk. ROML ($8000) masque la RAM pendant la copie,
+; et ce code peut etre au-dessus de $8000 : la copie se fait donc depuis un petit
+; chargeur recopie dans le tampon cassette ($0334) ; il copie 4 pages en $0400
+; (ecran texte inutilise), coupe la cartouche et saute dans le code.
+        .export _led_theme
+        .code
+_led_theme:
+        pha
+        ldx #ld_end - ld - 1
+@i:     lda ld_img,x
+        sta $0334,x
+        dex
+        bpl @i
+        pla
+        jmp $0334
+ld_img:
+        .org $0334
+ld:     pha
+        php
+        sei
+        lda $01
+        pha
+        lda #$37
+        sta $01
+        lda #62
+        sta $DE00
+        ldx #0
+@c:     lda $8000,x
+        sta $0400,x
+        lda $8100,x
+        sta $0500,x
+        lda $8200,x
+        sta $0600,x
+        lda $8300,x
+        sta $0700,x
+        inx
+        bne @c
+        lda #$80
+        sta $DE00
+        pla
+        sta $01
+        plp
+        pla
+        jmp $0400
+ld_end:
+        .reloc
