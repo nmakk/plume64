@@ -3008,6 +3008,10 @@ void main(void)
     dbg_state();
 #endif
     redraw_all();
+#ifdef REU
+    led_theme(4);                                       /* molette : sensibilite 1 */
+    led_theme(theme_no);                                /* leds : couleur du theme de depart */
+#endif
     /* repere pour les outils de test : adresses du texte et de sa longueur */
     *(unsigned *)0x02AB = (unsigned)text;
     *(unsigned *)0x02AD = (unsigned)&doclen;
@@ -3016,6 +3020,8 @@ void main(void)
         if (wheel) {
             for (; wheel_n; --wheel_n) handle_key(wheel == 4 ? 0x91 : 0x11);
             wheel = 0;
+            POKE(198, 0);                       /* les impulsions de la molette se lisent comme des touches : */
+            joy_p1_time = PEEK(0xA2);           /* purge du tampon, puis quelques images sans touches */
 #ifdef REU
             maybe_slide();
 #endif

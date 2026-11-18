@@ -21,11 +21,20 @@ tmo    = $03B8          ; 3 bajt
 
         .segment "CODE"
 entry:  sta theme
+        lda $DF1D               ; UCI azonosito: $C9, ha van Ultimate (egyebkent: kilepes)
+        cmp #$C9
+        beq :+
+        rts
+:
         php
         sei
         lda $FB
         pha
         lda $FC
+        pha
+        lda $FD
+        pha
+        lda $FE
         pha
         lda theme
         asl
@@ -36,6 +45,11 @@ entry:  sta theme
         sta $FC
 next:   ldy #0
         lda ($FB),y
+        sta $FD
+        iny
+        lda ($FB),y
+        sta $FE
+        ora $FD
         bne :+
         jmp done
 :       lda #6                  ; FREE_ALL: nem szivarognak a handle-ok
@@ -60,21 +74,14 @@ next:   ldy #0
         iny
         bne @p
 @pd:    ldy #0
-@u:     lda ($FB),y
+@u:     lda ($FD),y
         beq @ud
         sta cmdbuf,x
         inx
         iny
         bne @u
 @ud:    stx cmdlen
-        iny                     ; a lezaro 0 is
-        tya
-        clc
-        adc $FB
-        sta $FB
-        bcc :+
-        inc $FC
-:       jsr send
+        jsr send
         lda #6                  ; DO_EXCHANGE_RAW fejlec, nincs torzs
         sta cmdbuf
         lda #$32
@@ -86,8 +93,18 @@ next:   ldy #0
         lda #4
         sta cmdlen
         jsr send
+        clc
+        lda $FB
+        adc #2
+        sta $FB
+        bcc next
+        inc $FC
         jmp next
 done:   pla
+        sta $FE
+        pla
+        sta $FD
+        pla
         sta $FC
         pla
         sta $FB
@@ -153,18 +170,21 @@ send:   ldx #0
 
 prefix: .byte "127.0.0.1/v1/configs/", 0
 
-.define SFIX   "LED%20Strip%20Settings/LedStrip%20Mode?value=Fixed%20Color"
-.define SOFF   "LED%20Strip%20Settings/LedStrip%20Mode?value=Off"
-.define SWHITE "LED%20Strip%20Settings/Fixed%20Color?value=White"
-.define SROYAL "LED%20Strip%20Settings/Fixed%20Color?value=Royal%20Blue"
-.define KFIX   "Keyboard%20Lighting/LedStrip%20Mode?value=Fixed%20Color"
-.define KOFF   "Keyboard%20Lighting/LedStrip%20Mode?value=Off"
-.define KGREEN "Keyboard%20Lighting/Fixed%20Color?value=Green"
-.define KAZURE "Keyboard%20Lighting/Fixed%20Color?value=Azure"
-.define KAMBER "Keyboard%20Lighting/Fixed%20Color?value=Amber"
+sfix:   .byte "LED%20Strip%20Settings/LedStrip%20Mode?value=Fixed%20Color", 0
+soff:   .byte "LED%20Strip%20Settings/LedStrip%20Mode?value=Off", 0
+swhite: .byte "LED%20Strip%20Settings/Fixed%20Color?value=White", 0
+sroyal: .byte "LED%20Strip%20Settings/Fixed%20Color?value=Royal%20Blue", 0
+kfix:   .byte "Keyboard%20Lighting/LedStrip%20Mode?value=Fixed%20Color", 0
+koff:   .byte "Keyboard%20Lighting/LedStrip%20Mode?value=Off", 0
+kgreen: .byte "Keyboard%20Lighting/Fixed%20Color?value=Green", 0
+kazure: .byte "Keyboard%20Lighting/Fixed%20Color?value=Azure", 0
+kamber: .byte "Keyboard%20Lighting/Fixed%20Color?value=Amber", 0
+swheel: .byte "U64%20Specific%20Settings/Mouse%20Wheel%20Sensitivity?value=1", 0
 
-tab:    .word t0, t1, t2, t3
-t0:     .byte SFIX, 0, SWHITE, 0, KOFF, 0, 0                 ; fekete a feheren
-t1:     .byte SOFF, 0, KFIX, 0, KGREEN, 0, 0                 ; zold a feketen
-t2:     .byte SFIX, 0, SROYAL, 0, KFIX, 0, KAZURE, 0, 0      ; Commodore-kek
-t3:     .byte SOFF, 0, KFIX, 0, KAMBER, 0, 0                 ; sarga a feketen
+; temankent a muveletek listaja (szavak), 0 zarja
+tab:    .word t0, t1, t2, t3, t4
+t0:     .word sfix, swhite, koff, 0                  ; fekete a feheren
+t1:     .word soff, kfix, kgreen, 0                  ; zold a feketen
+t2:     .word sfix, sroyal, kfix, kazure, 0          ; Commodore-kek
+t3:     .word soff, kfix, kamber, 0                  ; sarga a feketen
+t4:     .word swheel, 0                              ; indulaskor: gorgo-erzekenyseg

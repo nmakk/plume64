@@ -25,7 +25,7 @@
 
 ## REU-terv: döntések és állás (2026-11-16)
 A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude memória `reu-build-decisions`):
-- **Külön REU-build**, **Magic Desk** crt (`plume-xx-reu.crt`, `crt-md.s`, `mkcrt.py ... md`). Az EasyFlash I/O2 RAM-ja eltakarja a REU-t, ezért az EasyFlash-crt-k változatlanok (20 000, RTF nélkül).
+- **Külön REU-build**, **Magic Desk** crt (`plume-xx-2.2e.crt`, `crt-md.s`, `mkcrt.py ... md`). Az EasyFlash I/O2 RAM-ja eltakarja a REU-t, ezért az EasyFlash-crt-k változatlanok (20 000, RTF nélkül).
 - **Ablak 12 000 bájt**, a dokumentum max. 64 KB (PLM2 16 bites hossz). REU ≥ 256 KB kell.
 - **Kész és C64U-n igazolt:** betöltés/mentés a REU-n át (A), csúszás előre/hátra részleges újratördeléssel (B). **Megírva, nincs tesztelve:** nyomtatás darabolása. **Hátra:** keresés a teljes dokumentumon, görgetősáv (jobb szél), RTF (File menü: „Open RTF...” új dokumentumként, „Save as RTF...”), 1 MHz-es csúszás-késleltetés mérése.
 - A nem-REU buildek bájtra változatlanok (fr 110, en 255, dk 192, hu 37 szabad); minden módosítás után ellenőrizni.
@@ -38,7 +38,7 @@ A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude 
 - Nincs commit, README és `dist/` nincs frissítve.
 
 ## Frissítés (2026-11-16 éjjel): élesben, RTF-javítások — KÉSZ, commitolva
-- **Élesítve a C64U-n:** `/SD/PLUME/plume-hu-reu.crt`; regény: `/SD/documents/semmi-egyben.d81` (1581, egy SEQ fájl "semmi", 246 KB). Drive A típusa 1581 kell hozzá; a kép `readwrite` módban csatolandó (a `readonly` miatt "write protect"). SD-n lévő képbe a mentés tartósan visszaíródik. A Kernal ROM = `JiffyDOS_C64.bin` futásidőben állítva — az F1 menüben flash-be kell menteni.
+- **Élesítve a C64U-n:** `/SD/PLUME/plume-hu-2.2e.crt`; regény: `/SD/documents/semmi-egyben.d81` (1581, egy SEQ fájl "semmi", 246 KB). Drive A típusa 1581 kell hozzá; a kép `readwrite` módban csatolandó (a `readonly` miatt "write protect"). SD-n lévő képbe a mentés tartósan visszaíródik. A Kernal ROM = `JiffyDOS_C64.bin` futásidőben állítva — az F1 menüben flash-be kell menteni.
 - **Hibák, javítva:** (1) `write_rtf` 16 bites `g/tot` → csak a hossz mod 65536 bájtot mentette (a regényből ~1500 sor); most `dpos`. (2) cc65 `?:` 8 bitre csonkít, ha az egyik ág `unsigned char` → a `\'85 \'91 \'92 \'97` (cp1252 0x80–0x9F) betöltése `&`/szóköz lett; most nincs ternáris. Igazolva: a 246 KB-os regény betöltés+RTF mentés után mind a 146 586 betű egyezik az eredetivel.
 - **Új:** `disk_busy` makró (lemez I/O alatt sprite ki, JiffyDOS gyors marad; 25 B/build); `slide_back` bekezdésenként (`para_start(win_base - 1)`); `tools/c64u/Loadfromc64u.sh` / `Savetoc64u.sh` (kép le/fel FTP-vel + `c1541`); `MAXDOC_TEST_N` (teszt ablakméret, alap 4000; RTF-hookos teszthez 3000).
 - **Szabad bájt (BSS vége → `$BE00`):** non-REU fr 86, en 231, dk 168, hu 13 (a hu build csak ~13 B!); REU fr 422, en 600, dk 537, hu 382.
@@ -69,3 +69,10 @@ A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude 
 - **Hiba (a felhasználó jelezte):** kurzor fel/le (és egérrel kijelölés lehúzása) közben a görgetés egy idő után megakadt (pl. a 2902. sornál), a görgetősávval át lehetett lépni. Ok: az ablakcsökkentés után az ablak csak ~35 sor, a `slide_fwd` (`L + 25 > cl`) és a `slide_back` (`T < cl + 25`) feltételei fix 25-30 sort kértek, ami nem teljesülhetett.
 - **Javítás:** a csúszás a képernyő tetejéhez/aljához igazodik: `maybe_slide`: előre ha `top + VISIBLE + 8 > nlines`, vissza ha `top < 6` (kényszerített eset: `top >= 12` -> előre, különben vissza); `slide_fwd` legfeljebb `top - 6` sort dob el (a képernyő sorait nem érinti); `slide_back` a farkat csak a képernyő alatt vágja (`T >= top + VISIBLE + 2`). `FILL` = `MAXDOC - ROOM - 200` (2250 B). `EDGE` megszűnt. A relocate újra sima `pull_tail()`.
 - **PLM1 olvasó kikerült a REU buildekből** (a sima buildek olvassák); szabad hely: hu REU 576 B, fr ~590, en ~790, dk ~730 B. Igazolva a regényen: 400 sor le + 400 sor fel megszakítás nélkül, távoli keresés, aljára ugrás.
+
+## Frissítés (2026-11-18): Plume 2.2e — egérgörgő, ledek, billentyűhang
+- **Verzió:** a REU buildek „Plume 2.2e” (enhanced); a crt-k neve `build/plume-XX-2.2e.crt`. A non-REU maradt 2.2.
+- **Egérgörgő (C64U, Mouse + Wheel):** a firmware a kereket a port 1-en bal/jobb (0x04/0x08) impulzusként küldi, 0x1F zajjal; egy kattanás annyi impulzus, amennyi a *Mouse Wheel Sensitivity* (1–16, alap 8). A Plume indításkor 1-re állítja. Egy impulzus = 1 sor, gyors forgatásnál 2/4/8 (a kattanások közti idő alapján: 3/6/12 jiffy). Az impulzusok a billentyűmátrixban is látszanak: görgetés után `POKE(198,0)` + `joy_p1_time` (különben 1 MHz-en hamis betűk, É).
+- **Ledek a témához (CTRL+0, és indításkor az alap témához):** a Programmatic LED mód C64-oldali interfésze nem publikus (changelog, doksi, kézikönyv: nincs). Helyette az **UCI HTTP target ($06, 3.15 / C64U 1.2)** a gép saját REST API-ját hívja (`PUT /v1/configs/<kat>/<elem>?value=`), 127.0.0.1-gyel és a saját IP-vel is megy. A kód (`src/led.s`) a Magic Desk crt **62. bankjában** van; `led_theme()` (`src/reu.s`) egy kis betöltővel $0334-re másol, az $0400–$07FF-re másolja és ugrik. A betöltő nem lehet a $8000 felett (ROML elfedi a RAM-ot), és nem kerülhet a STARTUP szegmensbe ($080D = belépési pont). UCI nélkül (`$DF1D != $C9`) azonnal visszatér. Témák: 1 fehér/ki, 2 ki/zöld, 3 Royal Blue/Azure, 4 ki/Amber (ház/billentyűzet). Egy hívás kb. 1 s.
+- **Billentyűhang:** CTRL+9 kapcsolja (SID zaj, hu REU).
+- **Nem tesztelt:** nem-Ultimate gép, Ultimate-II+ és nem Starlight C64U (a LED/Mouse kategóriák ott hiányozhatnak; a hiba ártalmatlan).

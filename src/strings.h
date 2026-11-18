@@ -62,12 +62,17 @@
 #define S_SAVERTF    "Save as RTF..."
 #define S_NEEDREU    "No REU found."
 #define S_BADRTF     "Not an RTF file."
-#ifdef KBD_DK
-#define S_ABOUT1     "Plume 2.2 DK, word processor"
-#elif defined KBD_HU
-#define S_ABOUT1     "Plume 2.2 HU, word processor"
+#ifdef REU
+#define S_VER        "2.2e"                  /* enhanced : RTF, gorgo, ledek */
 #else
-#define S_ABOUT1     "Plume 2.2, word processor"
+#define S_VER        "2.2"
+#endif
+#ifdef KBD_DK
+#define S_ABOUT1     "Plume " S_VER " DK, word processor"
+#elif defined KBD_HU
+#define S_ABOUT1     "Plume " S_VER " HU, word processor"
+#else
+#define S_ABOUT1     "Plume " S_VER ", word processor"
 #endif
 #define S_ABOUT2     "for the Commodore 64."
 #define S_ABOUT3     "2026 by LABBEJ27."
