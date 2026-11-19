@@ -4,7 +4,7 @@
 ;
 ; Hogyan: az Ultimate Command Interface HTTP targetje ($06, a 3.15 / C64U 1.2
 ; firmware-tol) a gep sajat REST API-jat hivja: PUT /v1/configs/<kategoria>/<elem>?value=<ertek>.
-; Belepes: A = tema (0..3). Minden hivas kb. egy masodperc.
+; Belepes: A = tema szinei (0..3; a billentyuzet szine, de be/ki nem), 4 = gorgo, 5 = billentyuzet be, 6 = billentyuzet ki. Minden hivas kb. egy masodperc.
         .setcpu "6502"
 
 CTRL  = $DF1C
@@ -18,6 +18,7 @@ firstb = $03B5
 gotf   = $03B6
 theme  = $03B7
 tmo    = $03B8          ; 3 bajt
+tmpy   = $03BB
 
         .segment "CODE"
 entry:  sta theme
@@ -76,7 +77,26 @@ next:   ldy #0
 @pd:    ldy #0
 @u:     lda ($FD),y
         beq @ud
+        cmp #6
+        bcs @lit
+        sty tmpy                ; 1..5: elore rogzitett eleje (tokenek), lasd lent
+        asl
+        tay
+        lda toks-2,y
+        sta @tk+1               ; onmodosito: a token cimet beirjuk az olvaso utasitasba
+        lda toks-1,y
+        sta @tk+2
+        ldy #0
+@tk:    lda $FFFF,y
+        beq @td
         sta cmdbuf,x
+        inx
+        iny
+        bne @tk
+@td:    ldy tmpy
+        iny
+        bne @u
+@lit:   sta cmdbuf,x
         inx
         iny
         bne @u
@@ -97,8 +117,9 @@ next:   ldy #0
         lda $FB
         adc #2
         sta $FB
-        bcc next
-        inc $FC
+        bcs :+
+        jmp next
+:       inc $FC
         jmp next
 done:   pla
         sta $FE
@@ -170,21 +191,34 @@ send:   ldx #0
 
 prefix: .byte "127.0.0.1/v1/configs/", 0
 
-sfix:   .byte "LED%20Strip%20Settings/LedStrip%20Mode?value=Fixed%20Color", 0
-soff:   .byte "LED%20Strip%20Settings/LedStrip%20Mode?value=Off", 0
-swhite: .byte "LED%20Strip%20Settings/Fixed%20Color?value=White", 0
-sroyal: .byte "LED%20Strip%20Settings/Fixed%20Color?value=Royal%20Blue", 0
-kfix:   .byte "Keyboard%20Lighting/LedStrip%20Mode?value=Fixed%20Color", 0
-koff:   .byte "Keyboard%20Lighting/LedStrip%20Mode?value=Off", 0
-kgreen: .byte "Keyboard%20Lighting/Fixed%20Color?value=Green", 0
-kazure: .byte "Keyboard%20Lighting/Fixed%20Color?value=Azure", 0
-kamber: .byte "Keyboard%20Lighting/Fixed%20Color?value=Amber", 0
+; Az elemek elso bajtja egy token (1..5), ami a kategoria elejet jelenti: igy nem ismetlodnek a hosszu utvonalak.
+tk1:    .byte "Keyboard%20Lighting/Fixed%20Color?value=", 0
+tk2:    .byte "Keyboard%20Lighting/LedStrip%20Mode?value=", 0
+tk3:    .byte "Keyboard%20Lighting/Color%20tint?value=", 0
+tk4:    .byte "LED%20Strip%20Settings/Fixed%20Color?value=", 0
+tk5:    .byte "LED%20Strip%20Settings/LedStrip%20Mode?value=", 0
+toks:   .word tk1, tk2, tk3, tk4, tk5
+
+sfix:   .byte 5, "Fixed%20Color", 0
+soff:   .byte 5, "Off", 0
+swhite: .byte 4, "White", 0
+sroyal: .byte 4, "Royal%20Blue", 0
+kfix:   .byte 2, "Fixed%20Color", 0
+koff:   .byte 2, "Off", 0
+kchart: .byte 1, "Chartreuse", 0
+kindigo: .byte 1, "Indigo", 0
+kamber: .byte 1, "Amber", 0
+kwhite: .byte 1, "White", 0
+ktpure: .byte 3, "Pure", 0
+ktbright: .byte 3, "Bright", 0
 swheel: .byte "U64%20Specific%20Settings/Mouse%20Wheel%20Sensitivity?value=1", 0
 
 ; temankent a muveletek listaja (szavak), 0 zarja
-tab:    .word t0, t1, t2, t3, t4
-t0:     .word sfix, swhite, koff, 0                  ; fekete a feheren
-t1:     .word soff, kfix, kgreen, 0                  ; zold a feketen
-t2:     .word sfix, sroyal, kfix, kazure, 0          ; Commodore-kek
-t3:     .word soff, kfix, kamber, 0                  ; sarga a feketen
+tab:    .word t0, t1, t2, t3, t4, t5, t6
+t0:     .word sfix, swhite, kwhite, ktpure, 0                ; fekete a feheren (a billentyuzet szine: fehér)
+t1:     .word soff, kchart, ktbright, 0                        ; zold a feketen
+t2:     .word sfix, sroyal, kindigo, ktbright, 0                ; Commodore-kek
+t3:     .word soff, kamber, ktpure, 0                        ; sarga a feketen
 t4:     .word swheel, 0                              ; indulaskor: gorgo-erzekenyseg
+t5:     .word kfix, 0                                ; billentyuzet be (van mentetlen valtozas)
+t6:     .word koff, 0                                ; billentyuzet ki (minden mentve)

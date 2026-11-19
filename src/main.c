@@ -823,8 +823,13 @@ static unsigned char mouse_y, clicked, extend, held, last_buttons;
 /* Joystick : le pointeur avance d'un pixel par image, puis accelere. */
 unsigned char joy_read(void);
 extern unsigned char joy_p1;
+#ifndef REU
+#define KB_TOUCH()
+#endif
 static unsigned char joy_speed, joy_tick, joy_hold, hold_a2, wheel, wheel_last, wheel_t, wheel_n;
 #ifdef REU
+static unsigned char kb_idle, led_kb;         /* billentyuzet-LED : csend (kepek), az LED allapota */
+#define KB_TOUCH() (kb_idle = 100)
 static unsigned char click_hold, click_n;     /* double / triple clic : images restantes, nombre de clics */
 static unsigned click_p;
 #endif
@@ -858,6 +863,7 @@ static void poll_mouse(void)
     if (PEEK(0xA2) != hold_a2) { hold_a2 = PEEK(0xA2); if (joy_hold) --joy_hold;
 #ifdef REU
         if (click_hold) --click_hold;
+        if (kb_idle) --kb_idle;
 #endif
     }
     if (joy_p1) joy_hold = 6;
@@ -2695,7 +2701,7 @@ static void load_rtf(void)
     cursor = 0;
     anchor = NOSEL;
     top = 0;
-    dirty = ok;
+    dirty = 0;                                  /* a megnyitott fajl modositatlan (nincs csillag, a billentyuzet nem vilagit) */
     layout_all();
     pull_tail();
     style = style_before(0);
@@ -3575,6 +3581,7 @@ void main(void)
 #endif
     led_theme(4);                                       /* molette : sensibilite 1 */
     led_theme(theme_no);                                /* leds : couleur du theme de depart */
+    led_theme(6);                                       /* clavier eteint : rien a enregistrer */
 #endif
     /* repere pour les outils de test : adresses du texte et de sa longueur */
     *(unsigned *)0x02AB = (unsigned)text;
@@ -3591,6 +3598,7 @@ void main(void)
 #endif
         }
         if (clicked) {
+            KB_TOUCH();
             handle_click();
 #ifdef REU
             maybe_slide();
@@ -3598,11 +3606,20 @@ void main(void)
         }
         key = read_key();
         if (key) {
+            KB_TOUCH();                         /* 2 s csend utan igazodik a billentyuzet-LED */
             handle_key(key);
 #ifdef REU
             maybe_slide();
 #endif
         }
+#ifdef REU
+        /* Billentyuzet-LED : vilagit, ha van mentetlen valtozas ; mentes utan azonnal kialszik,
+           bekapcsolni csak szunetben kapcsol (egy hivas kb. 1 s). */
+        if ((dirty != 0) != led_kb && (!dirty || !kb_idle)) {
+            led_kb = dirty != 0;
+            led_theme(led_kb ? 5 : 6);
+        }
+#endif
         blink_cursor();
     }
 }
