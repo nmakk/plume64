@@ -97,12 +97,13 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define oldstyle  ((unsigned char *)(0xD000 + 2 * (MAXLINES + 2)))
 #define CLIP      ((unsigned char *)(0xD000 + 3 * (MAXLINES + 2)))
 #define CLIPMAX   760
+typedef unsigned long dpos;             /* position dans le document (24 bits utiles) */
 /* Noms de la boite Ouvrir : sous les E/S, apres le presse-papiers. */
 #define names     ((char (*)[17])(0xD000 + 3 * (MAXLINES + 2) + CLIPMAX))
 /* $0334-$03FB, tampon cassette inutilise : petites chaines. */
 #define diskmsg   ((char *)0x0334)              /* 41 octets */
 #define cmdname   ((char *)0x035D)              /* 24 */
-#define findtext  ((unsigned char *)0x0375)     /* 24 */
+#define findtext  ((unsigned char *)0x02D0)     /* 24 : hors du tampon cassette, que le code des leds ecrase */
 #define filename  ((char *)0x038D)              /* 17, PETSCII */
 #define statusbuf ((char *)0x039E)              /* 40 : barre d'etat */
 #define inputbuf  ((char *)0x03C6)              /* 40 : saisie, jusqu'a $03ED */
@@ -126,6 +127,8 @@ static unsigned char hun_on;
 static unsigned char overwrite;                 /* mode ecrasement (Shift + INST/DEL) */
 static void hun_toggle(void);
 #endif
+static unsigned char sound_on = 1;              /* clic de touche */
+static void key_click(void);
 #define NTHEMES 4
 const unsigned char themes[NTHEMES][5] = {
     { 0x01, 0x0F, 0x0C, COLOR_GRAY1, COLOR_BLACK },     /* noir sur blanc */
@@ -151,7 +154,19 @@ unsigned cursor;                          /* exportes pour gfx.s */
 unsigned anchor = NOSEL;
 static unsigned char style;
 static unsigned char dirty;
+#ifdef REU
+static dpos cliplen;                    /* presse-papiers dans le REU (ou, sans REU, dans CLIP) */
+static dpos c_base, c_cap = CLIPMAX;
+static unsigned char clip_st, clip_end, clip_m0;       /* style au debut, a la fin ; le premier octet est-il un marqueur */
+static dpos agl;                        /* position globale de l'ancre de la selection (anchor n'est que sa part visible) */
+static unsigned char bdel(void);
+static void copy_selection(void);
+static void cut_selection(void);
+static void paste(void);
+static void select_all(void);
+#else
 static unsigned cliplen;
+#endif
 static unsigned char key;
 unsigned wrap_width = TEXT_W;
 static unsigned char next_style;             /* style a la fin de next_line() */
@@ -163,7 +178,7 @@ static unsigned char next_style;             /* style a la fin de next_line() */
    fenetre (suf_len octets) en haut, finissant en suf_end. Au-dela de suf_end :
    64 Ko de bloc-notes (impression). reu_move coupe les transferts aux limites
    de banque. Les positions dans la fenetre restent sur 16 bits. */
-typedef unsigned long dpos;
+
 extern unsigned reu_c64, reu_len;
 extern unsigned char reu_addr[3];
 extern void reu_stash(void), reu_fetch(void);
@@ -189,6 +204,7 @@ static void cursor_moved(void);
 static void handle_key(unsigned char k);
 static dpos jb, rl;                         /* debut du journal depuis le dernier enregistrement ; octets supprimes gardes (annuler) */
 static unsigned char jr_off, bck_skip;
+static unsigned char jr_blk, jr_lf;             /* operation en bloc (2 : premiere partie, 1 : suite) ; drapeaux du dernier enregistrement (0x80 bloc, 0x40 suite) */
 static unsigned redo_n;                    /* annuler en cours : on ne journalise pas */
 static void quick_save(void);
 static void bck_saved(void);
@@ -198,6 +214,8 @@ static dpos suf_len;                    /* octets apres la fenetre, dans le REU 
 static dpos suf_end;                    /* adresse REU de la fin du suffixe */
 static unsigned char win_style;         /* style au debut de la fenetre */
 static dpos lines_before;               /* lignes avant la fenetre (estimation apres un saut) */
+static unsigned bpl_est = 40;           /* octets par ligne, moyenne lissee des fenetres vues */
+static unsigned char lines_exact = 1;   /* lines_before est exact (pas de saut depuis le debut du document) */
 #define fbuf outbuf                     /* lecture du document : 256 octets au plus */
 static dpos first_mark;                 /* au plus la position du premier marqueur de style du document */
 static dpos sc_lo1, sc_hi;              /* cache de style_at */
@@ -460,6 +478,19 @@ static unsigned relayout(unsigned p, unsigned old_end, unsigned new_end, unsigne
 
 static unsigned sel_lo(void) { return anchor == NOSEL ? cursor : (anchor < cursor ? anchor : cursor); }
 static unsigned sel_hi(void) { return anchor == NOSEL ? cursor : (anchor < cursor ? cursor : anchor); }
+#ifdef REU
+/* L'ancre est gardee en position globale (agl) ; anchor est sa part visible dans la fenetre. */
+static void anchor_fix(void)
+{
+    if (anchor == NOSEL) return;
+    anchor = agl < win_base ? 0 : agl > win_base + doclen ? doclen : (unsigned)(agl - win_base);
+}
+static dpos sel_lo_g(void) { dpos c = win_base + cursor; return anchor == NOSEL || c < agl ? c : agl; }
+static dpos sel_hi_g(void) { dpos c = win_base + cursor; return anchor == NOSEL || c > agl ? c : agl; }
+static unsigned char sel_in_window(void) { return anchor == NOSEL || (agl >= win_base && agl <= win_base + doclen); }
+#else
+#define anchor_fix()
+#endif
 
 static void draw_line(unsigned i)
 {
@@ -698,9 +729,12 @@ static void draw_status(void)
     b = buf;
     strcpy(b, S_LINE " ");
 #ifdef REU
-    b = ultoa_simple(b + strlen(b), lines_before + line_of(cursor) + 1);
+    b += strlen(b);
+    if (!lines_exact) *b++ = '~';                /* apres un saut, le numero est une estimation */
+    b = ultoa_simple(b, lines_before + line_of(cursor) + 1);
     if (!suf_len) {                              /* le total n'est connu qu'en fin de document */
         *b++ = '/';
+        if (!lines_exact) *b++ = '~';
         ultoa_simple(b, lines_before + nlines);
     }
 #else
@@ -727,6 +761,59 @@ static void draw_status(void)
 #endif
 }
 
+#ifdef REU
+/* Barre de progression dans la ligne d'etat pendant les longs transferts de fichiers (chargement, enregistrement). */
+#define PG_X0 112                       /* cadre : x = 112 ... 311, remplissage en dedans */
+#define PG_W  198
+static unsigned pg_step, pg_units, pg_acc, pg_x;     /* pg_step = 0 : pas de barre */
+
+static void pg_fill(unsigned x0, unsigned x1)
+{
+    unsigned card, base = ROWBASE(FOOT_ROW);
+    unsigned char a, b, mask, y;
+    for (card = x0 & 0xFFF8u; card < x1; card += 8) {
+        a = card < x0 ? (unsigned char)(x0 - card) : 0;
+        b = card + 8 > x1 ? (unsigned char)(x1 - card) : 8;
+        mask = (unsigned char)((0xFF >> a) & (0xFF << (8 - b)));
+        for (y = 1; y < 7; ++y) bm_or(base + card + y, mask);
+    }
+}
+
+static void pg_begin(const char *label, dpos total)
+{
+    pg_units = pg_acc = pg_x = 0;
+    pg_step = total ? (unsigned)((total >> 8) / PG_W) + 1 : 0;      /* total en unites de 256 octets */
+    if (!pg_step) return;
+    draw_off = 0;
+    clear_cells(FOOT_ROW, 0, 320);
+    put_text(6, FOOT_ROW, label, 0);
+    hline(FOOT_ROW, PG_X0, 200, 0);
+    hline(FOOT_ROW, PG_X0, 200, 7);
+    vline(FOOT_ROW, PG_X0, 0x80);
+    vline(FOOT_ROW, PG_X0 + 192, 0x01);
+}
+
+static void pg_add(unsigned k)
+{
+    unsigned x;
+    if (!pg_step) return;
+    pg_acc += k;
+    if (pg_acc < 256) return;
+    pg_units += pg_acc >> 8;
+    pg_acc &= 255;
+    x = pg_units / pg_step;
+    if (x > PG_W) x = PG_W;
+    if (x > pg_x) { pg_fill(PG_X0 + 1 + pg_x, PG_X0 + 1 + x); pg_x = x; }
+}
+
+static void pg_end(void)
+{
+    if (!pg_step) return;
+    pg_step = 0;
+    draw_status();
+}
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Menus et panneaux                                                   */
 
@@ -734,7 +821,7 @@ static void draw_status(void)
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
 static const char *const menu_items[NMENUS][9] = {
 #ifdef RTF
-    { S_NEW, S_OPEN, S_QSAVE, S_SAVE, S_SAVEAS, S_SAVERTF, 0 },
+    { S_NEW, S_OPEN, S_QSAVE, S_SAVE, S_SAVEAS, S_SAVERTF, S_RELOAD, S_RELOADB, 0 },
 #else
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
@@ -743,17 +830,23 @@ static const char *const menu_items[NMENUS][9] = {
 #else
     { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
 #endif
+#ifdef REU
+    { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, S_COLORS, 0 },
+#else
     { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, 0 },
+#endif
     { S_PGRAPH, S_PTEXT, S_PWIDE, 0 },
 #ifdef HUN
-    { S_ABOUT, S_KBD, 0 },
+    { S_ABOUT, S_KBD, S_CLICK, S_OVERWR, 0 },
+#elif defined(REU)
+    { S_ABOUT, S_CLICK, 0 },
 #else
     { S_ABOUT, 0 },
 #endif
 };
 static const char *const menu_keys[NMENUS][9] = {
 #ifdef RTF
-    { "", "", "F1", "", "", "", 0 },
+    { "", "", "F1", "", "", "", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
@@ -762,10 +855,16 @@ static const char *const menu_keys[NMENUS][9] = {
 #else
     { "F6", "F2", "F4", "", "", "F8", 0 },
 #endif
+#ifdef REU
+    { "", "F3", "F5", "F7", "^\xB5", 0 },
+#else
     { "", "F3", "F5", "F7", 0 },
+#endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=Spc", 0 },
+    { "", "C=Spc", "^9", "S-Del", 0 },
+#elif defined(REU)
+    { "", "^9", 0 },
 #else
     { "", 0 },
 #endif
@@ -1147,7 +1246,7 @@ static void jr_hdr(void)
 {
     static unsigned char h[7];
     h[0] = (unsigned char)jr_lp; h[1] = (unsigned char)(jr_lp >> 8); h[2] = (unsigned char)(jr_lp >> 16);
-    h[3] = (unsigned char)jr_ld; h[4] = (unsigned char)(jr_ld >> 8);
+    h[3] = (unsigned char)jr_ld; h[4] = ((unsigned char)(jr_ld >> 8) & 0x3F) | jr_lf;
     h[5] = (unsigned char)jr_li; h[6] = (unsigned char)(jr_li >> 8);
     reu_move(0, h, JR_BASE + jr_last, 7);
 }
@@ -1167,9 +1266,31 @@ static void jr_rem(unsigned a, unsigned n)
 static void jr_log(unsigned a, unsigned del, unsigned n)
 {
     dpos g = win_base + a;
+    unsigned char f = 0;
     if (jr_off || (!del && !n)) return;
     redo_n = 0;
-    if (jr_n && !jr_ld) {
+    if (jr_blk) {                               /* operation en bloc (coller, supprimer une grande selection) */
+        f = 0x80;
+        if (jr_blk == 1) {
+            if (jr_n && (jr_lf & 0x80)) {       /* la suite prolonge le dernier enregistrement, s'il est contigu */
+                if (!n && !jr_li && g == jr_lp && jr_ld + del <= 0x3FFFu && rl + del <= u_cap) {
+                    jr_ld += del;
+                    rl += del;
+                    jr_hdr();
+                    return;
+                }
+                if (!del && n && jr_li + n <= 0xF000u && g == jr_lp + jr_li && jr_len + n <= u_cap) {
+                    reu_move(0, text + a, JR_BASE + jr_len, n);
+                    jr_len += n;
+                    jr_li += n;
+                    jr_hdr();
+                    return;
+                }
+            }
+            f |= 0x40;
+        }
+        jr_blk = 1;
+    } else if (jr_n && !jr_ld && !(jr_lf & 0x80)) {
         if (!del && n && jr_li < 0xF000u && g == jr_lp + jr_li) {       /* frappe : on prolonge */
             if (jr_len + n > u_cap) { jr_ok = 0; jr_clear(); return; }
             reu_move(0, text + a, JR_BASE + jr_len, n);
@@ -1192,14 +1313,17 @@ static void jr_log(unsigned a, unsigned del, unsigned n)
     jr_lp = g;
     jr_ld = del;
     jr_li = n;
+    jr_lf = f;
     jr_hdr();
     if (n) reu_move(0, text + a, JR_BASE + jr_len + 7, n);
     jr_len += 7 + n;
     rl += del;
 }
 
-/* Taille du REU : la banque b renvoie sur la banque 0 quand b est la taille. */
-static void reu_probe_size(void)
+/* Taille du REU : la banque b renvoie sur la banque 0 quand b est la taille. Appele une fois, au demarrage : overlay 4. */
+#pragma code-name (push, "OVERLAY4")
+#pragma rodata-name (push, "OVERLAY4")
+static void reu_probe_size_(void)
 {
     static unsigned char probe, got;
     unsigned char b;
@@ -1214,13 +1338,18 @@ static void reu_probe_size(void)
     suf_end = b ? (dpos)b << 16 : 0x1000000UL;          /* taille du REU */
     /* Zone d'annulation en haut du REU : bloc-notes (4 Ko), journal, octets supprimes, pile L, pile refaire.
        REU de 2 Mo ou plus : 256 Ko de journal ; plus petit : 32 Ko. */
-    if (suf_end >= 0x200000UL) { u_cap = 0x40000UL; l_max = 40000u; d_max = 4096u; suf_end -= 0xB0000UL; }
-    else { u_cap = 0x8000UL; l_max = 5000u; d_max = 512u; suf_end -= 0x20000UL; }
+    if (suf_end >= 0x200000UL) { u_cap = 0x40000UL; l_max = 40000u; d_max = 4096u; suf_end -= 0xF0000UL; }
+    else { u_cap = 0x4000UL; l_max = 2500u; d_max = 256u; suf_end -= 0x20000UL; }
+    c_cap = u_cap;
     jr_base = suf_end + 0x1000UL;
     r_base = jr_base + u_cap;
     l_base = r_base + u_cap;
     d_base = l_base + 3UL * l_max;
+    c_base = d_base + d_max;                    /* presse-papiers */
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void reu_probe_size(void) { ovl_load(4); reu_probe_size_(); }
 
 /* Ecrit sur le canal 2 n octets du REU a partir de ra, par morceaux de 256. */
 static void write_reu(dpos ra, dpos n)
@@ -1230,6 +1359,7 @@ static void write_reu(dpos ra, dpos n)
         k = n > 256 ? 256 : (unsigned)n;
         reu_move(1, outbuf, ra, k);
         cbm_write(2, outbuf, k);
+        pg_add(k);
         ra += k;
         n -= k;
     }
@@ -1446,7 +1576,17 @@ static unsigned char ask_filename(void)
 #endif
 
 /* Format PLM2 : "PLM2", longueur (2 octets), texte avec marqueurs. */
+#ifdef REU
+/* save_doc et load_named sont dans l'overlay 6 (RAM) : les versions residentes le chargent, puis font les
+   appels qui chargent un autre overlay (RTF, bck_saved) une fois revenues. */
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
+static unsigned char save_doc_(void)
+#define SD_R(v) return v
+#else
 static void save_doc(void)
+#define SD_R(v) return
+#endif
 {
 #ifdef REU
     unsigned char head[8], hl = 6;
@@ -1458,9 +1598,9 @@ static void save_doc(void)
 #define HEADLEN 6
 #endif
 #ifdef RTF
-    if (rtf_doc && filename[0]) { rtf_write(filename); return; }   /* un document RTF s'enregistre en RTF */
+    if (rtf_doc && filename[0]) SD_R(1);          /* un document RTF s'enregistre en RTF */
 #endif
-    if (!filename[0] && !ask_filename()) return;
+    if (!filename[0] && !ask_filename()) SD_R(0);
     memcpy(head, "PLM2", 4);
     head[4] = (unsigned char)SAVELEN;
     head[5] = (unsigned char)(SAVELEN >> 8);
@@ -1471,7 +1611,8 @@ static void save_doc(void)
         head[7] = (unsigned char)(SAVELEN >> 24);
         hl = 8;
     }
-    if (!fit_check(SAVELEN + hl, filename)) return;
+    if (!fit_check(SAVELEN + hl, filename)) SD_R(0);
+    pg_begin(S_SAVING, SAVELEN);
 #else
     strcpy(cmdname, "@0:");
     strcat(cmdname, filename);
@@ -1485,24 +1626,38 @@ static void save_doc(void)
 #endif
         cbm_write(2, text, doclen);
 #ifdef REU
+        pg_add(doclen);
         write_reu(suf_end - suf_len, suf_len);
 #endif
         cbm_close(2);
     }
     disk_busy(0);
-    if (disk_status() >= 20) { show_disk_error(); return; }
+#ifdef REU
+    pg_end();
+#endif
+    if (disk_status() >= 20) { show_disk_error(); SD_R(0); }
     dirty = 0;
     shown_dirty = 255;                          /* le titre (le nom) se redessine toujours */
     draw_status();
-#ifdef REU
-    bck_saved();
-#endif
+    SD_R(2);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void save_doc(void)
+{
+    unsigned char r;
+    ovl_load(6);
+    r = save_doc_();
+    if (r == 1) rtf_write(filename);
+    else if (r == 2) bck_saved();
+}
+#endif
 
 static void new_doc(void)
 {
 #ifdef REU
-    win_base = suf_len = lines_before = 0;
+    win_base = suf_len = lines_before = 0; lines_exact = 1;
     win_style = sc_ok = 0;
     first_mark = 0xFFFFFFFFUL;
 #endif
@@ -1650,6 +1805,7 @@ static void cut_tail(unsigned T)
     suf_len += extra;
     reu_move(0, text + c, suf_end - suf_len, extra);
     doclen = c;
+    anchor_fix();
     nlines = T;
     if (text[c - 1] == CR) { lstyle[nlines] = st; lstart[nlines++] = c; }
     lstart[nlines] = c;
@@ -1672,6 +1828,7 @@ static void pull_tail(void)
     reu_move(1, text + doclen, suf_end - suf_len, m);
     suf_len -= m;
     doclen += m;
+    anchor_fix();
     i = nlines - 1;
     layout_from(i, lstart[i], lstyle[i]);
     trim_lines();
@@ -1693,7 +1850,7 @@ static void drop_head(unsigned L)
     for (i = L; i <= nlines; ++i) lstart[i - L] = lstart[i] - c;
     nlines -= L;
     cursor -= c;
-    if (anchor != NOSEL) anchor = anchor > c ? anchor - c : 0;
+    anchor_fix();
     top = top > L ? top - L : 0;
 }
 
@@ -1736,8 +1893,9 @@ static void slide_back(void)
     relayout(0, 0, len, &all);                  /* le morceau est une insertion en 0 */
     nP = line_of(len);
     lines_before = lines_before > nP ? lines_before - nP : 0;
+    if (!s0) { lines_before = 0; lines_exact = 1; }      /* retour au debut du document */
     cursor += len;
-    if (anchor != NOSEL) anchor += len;
+    anchor_fix();
     top = line_of(ts);
     draw_lines(nP ? nP - 1 : 0, nP + 1);
     trim_lines();
@@ -1748,8 +1906,10 @@ static void slide_back(void)
 static void relocate(dpos B)
 {
     dpos d;
-    unsigned k, bpl = nlines ? doclen / nlines : 40;
+    unsigned k;
     unsigned char st;
+    if (nlines) bpl_est = (bpl_est * 7 + doclen / nlines) / 8;
+    if (!bpl_est) bpl_est = 1;
     note_marks(text, doclen, win_base);
     st = style_at(B);
     reu_move(0, text, win_base, doclen);
@@ -1772,7 +1932,9 @@ static void relocate(dpos B)
         reu_move(0, text, suf_end - suf_len, k);
     }
     win_style = st;
-    lines_before = bpl ? B / bpl : 0;
+    lines_before = B / bpl_est;                 /* estimation : le nombre exact de lignes avant B n'est pas connu */
+    lines_exact = !B;
+    anchor_fix();
     layout_all();
     pull_tail();
 }
@@ -1846,12 +2008,15 @@ static unsigned char load_big(dpos n)
     dpos dst = suf_end - n;
     suf_len = n;
     first_mark = 0xFFFFFFFFUL;
+    pg_begin(S_LOADING, n);
     for (; n; n -= k, dst += k) {
         k = n > 256 ? 256 : (unsigned)n;
-        if ((unsigned)cbm_read(2, outbuf, k) != k) return 0;
+        if ((unsigned)cbm_read(2, outbuf, k) != k) { pg_end(); return 0; }
         note_marks(outbuf, k, suf_len - n);
         reu_move(0, outbuf, dst, k);
+        pg_add(k);
     }
+    pg_end();
     doclen = 0;
     layout_all();
     pull_tail();
@@ -1859,7 +2024,13 @@ static unsigned char load_big(dpos n)
 }
 #endif
 
+#ifdef REU
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
+static void load_named_(void)
+#else
 static void load_named(void)
+#endif
 {
 #ifdef REU
     unsigned char head[8], ok = 1;
@@ -1882,7 +2053,7 @@ static void load_named(void)
         cbm_read(2, head + 6, 2);
         n |= ((dpos)head[6] << 16) | ((dpos)head[7] << 24);
     }
-    win_base = suf_len = lines_before = 0;
+    win_base = suf_len = lines_before = 0; lines_exact = 1;
     win_style = sc_ok = 0;
     first_mark = 0xFFFFFFFFUL;
     if (reu_on && n > MAXDOC && n <= suf_end && (!memcmp(head, "PLM2", 4) || !memcmp(head, "PLM3", 4))) {
@@ -1919,6 +2090,11 @@ static void load_named(void)
     layout_all();
     style = style_before(0);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void load_named(void) { ovl_load(6); load_named_(); }
+#endif
 
 #ifdef RTF
 /* Le fichier "filename" est-il du RTF ? (sinon : format Plume) */
@@ -2277,6 +2453,9 @@ static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }
 static void set_selection(unsigned new_anchor, unsigned new_cursor)
 {
     unsigned a = sel_lo(), b = sel_hi(), la, lb;
+#ifdef REU
+    if (new_anchor != NOSEL && new_anchor != anchor) agl = win_base + new_anchor;
+#endif
     anchor = new_anchor;
     cursor = new_cursor;
     if (sel_lo() < a) a = sel_lo();
@@ -2295,7 +2474,11 @@ static void clear_selection(void)
 
 static unsigned char has_selection(void)
 {
+#ifdef REU
+    return anchor != NOSEL && agl != win_base + cursor;
+#else
     return anchor != NOSEL && anchor != cursor;
+#endif
 }
 
 /* Supprime [a, b) en gardant le style du texte qui suit. */
@@ -2312,17 +2495,21 @@ static void delete_range(unsigned a, unsigned b)
     else replace(a, b, 0, 0, 0);
 }
 
-static void delete_selection(void)
+static unsigned char delete_selection(void)
 {
-    if (has_selection()) delete_range(sel_lo(), sel_hi());
-    else anchor = NOSEL;
+    if (!has_selection()) { anchor = NOSEL; return 1; }
+#ifdef REU
+    if (!sel_in_window()) return bdel();        /* selection plus grande que la fenetre */
+#endif
+    delete_range(sel_lo(), sel_hi());
+    return 1;
 }
 
 static void insert_char(unsigned char c)
 {
     unsigned char seq[3], n = 0, here;
     unsigned p, b;
-    delete_selection();
+    if (!delete_selection()) return;
     p = b = cursor;
 #ifdef HUN
     if (overwrite && p < doclen && !IS_MARK(text[p]) && text[p] != CR) b = p + 1;   /* ecrase le caractere suivant */
@@ -2342,6 +2529,182 @@ static void delete_before(void)
     if (cursor) delete_range(cursor - 1, cursor);
 }
 
+#ifdef REU
+/* Presse-papiers dans le REU (jusqu'a 256 Ko ; sans REU, dans CLIP) et selection de toute la longueur du
+   document. Tout ce bloc est dans l'overlay 5 ; les versions residentes le chargent. */
+#pragma code-name (push, "OVERLAY5")
+#pragma rodata-name (push, "OVERLAY5")
+/* Style en vigueur a la position globale p. */
+static unsigned char style_g(dpos p)
+{
+    if (p >= win_base && p <= win_base + doclen) return style_before((unsigned)(p - win_base));
+    note_marks(text, doclen, win_base);
+    return style_at(p);
+}
+
+/* n octets du presse-papiers a partir de off, vers/depuis buf. */
+static void clip_io(unsigned char fetch, unsigned char *buf, dpos off, unsigned n)
+{
+    if (reu_on) reu_move(fetch, buf, c_base + off, n);
+    else {
+        io_hide();
+        if (fetch) memcpy(buf, CLIP + (unsigned)off, n); else memcpy(CLIP + (unsigned)off, buf, n);
+        io_show();
+    }
+}
+
+/* Redessine apres une operation en bloc. */
+static void blk_end(unsigned pos)
+{
+    unsigned k;
+    quiet = 0;
+    cursor = pos;
+    anchor = NOSEL;
+    layout_all();
+    k = line_of(cursor);
+    if (k < top || k >= top + VISIBLE) top = k > 4 ? k - 4 : 0;
+    style = style_before(cursor);
+    draw_text_area();
+    place_cursor();
+    draw_status();
+}
+
+static unsigned char copy_(void)
+{
+    static dpos lo, hi, g;
+    static unsigned m;
+    if (!has_selection()) return 0;
+    lo = sel_lo_g();
+    hi = sel_hi_g();
+    if (hi - lo > c_cap) { message(S_COPY, S_CLIPFULL, 0, 0); return 0; }
+    clip_st = style_g(lo);
+    clip_end = style_g(hi);
+    for (g = lo; g < hi; g += m) {
+        m = hi - g > 256 ? 256 : (unsigned)(hi - g);
+        doc_read(fbuf, g, m);
+        if (g == lo) clip_m0 = IS_MARK(fbuf[0]);
+        clip_io(0, fbuf, g - lo, m);
+    }
+    cliplen = hi - lo;
+    return 1;
+}
+
+/* Une operation en bloc doit tenir en entier dans le journal : sinon l'historique repart de zero avant, et
+   si elle depasse tout le journal, elle ne s'annule pas (jr_off). Renvoie 1 dans ce dernier cas. */
+static unsigned char blk_room(dpos need)
+{
+    if (jr_len + need + 700 > u_cap || rl + need > u_cap || jr_n + 64u > l_max) { jr_ok = 0; jr_clear(); }
+    if (need + 700 > u_cap) { jr_off = 1; return 1; }
+    return 0;
+}
+
+/* Supprime la selection globale, fenetre apres fenetre. Renvoie 0 si on a renonce. */
+static unsigned char bdel_(void)
+{
+    static dpos lo, hi, g, n;
+    static unsigned d, ua;
+    static unsigned char s0, s1, mark, own, first, noundo;
+    lo = sel_lo_g();
+    hi = sel_hi_g();
+    if (hi - lo > u_cap && !message(S_BIGDEL, S_BIGDEL1, S_BIGDEL2, 1)) return 0;
+    own = !jr_blk;
+    if (own) { jr_blk = 2; noundo = blk_room(hi - lo); }
+    s0 = style_g(lo);
+    s1 = style_g(hi);
+    quiet = 1;
+    g = lo;
+    n = hi - lo;
+    first = 1;
+    while (n) {
+        if (g < win_base || g >= win_base + doclen) relocate(para_start(g > 400 ? g - 400 : 0));
+        ua = (unsigned)(g - win_base);
+        if (g < win_base || ua >= doclen) break;
+        if (first) { first = 0; while (ua && IS_MARK(text[ua - 1])) { --ua; --g; ++n; } }
+        d = doclen - ua;
+        if (d > n) d = (unsigned)n;
+        if (!replace(ua, ua + d, 0, 0, 0)) break;
+        n -= d;
+    }
+    if (g < win_base || g > win_base + doclen) relocate(para_start(g > 400 ? g - 400 : 0));
+    ua = (unsigned)(g - win_base);
+    if (s0 != s1 && ua < doclen && !IS_MARK(text[ua])) { mark = MARK(s1); replace(ua, ua, &mark, 1, 0); }
+    anchor = NOSEL;
+    cursor = ua;
+    if (own) { jr_blk = 0; jr_off = 0; blk_end(ua); }
+    return 1;
+}
+
+static void cut_(void)
+{
+    if (copy_()) delete_selection();
+}
+
+static void paste_(void)
+{
+    static dpos pg, ra, left;
+    static unsigned m, ua;
+    static unsigned char here, f, pre, skip, mark, noundo;
+    if (!cliplen) return;
+    jr_blk = 2;
+    noundo = blk_room(cliplen + (has_selection() ? sel_hi_g() - sel_lo_g() : 0));
+    if (!delete_selection()) { jr_blk = 0; jr_off = 0; return; }
+    quiet = 1;
+    here = style_before(cursor);
+    clip_io(1, &f, 0, 1);
+    skip = 0;
+    pre = 0;
+    if (IS_MARK(f)) { if (f == MARK(here)) skip = 1; } else if (clip_st != here) pre = 1;
+    pg = win_base + cursor;
+    if (pre) { mark = MARK(clip_st); replace(cursor, cursor, &mark, 1, 0); ++pg; }
+    ra = skip;
+    left = cliplen - skip;
+    while (left) {
+        m = left > 400 ? 400 : (unsigned)left;
+        if (MAXDOC - doclen < ROOM + 400 || pg < win_base || pg > win_base + doclen)
+            relocate(para_start(pg > 400 ? pg - 400 : 0));      /* avant de lire le morceau : para_start se sert d'outbuf */
+        clip_io(1, outbuf, ra, m);
+        ua = (unsigned)(pg - win_base);
+        if (pg < win_base || ua > doclen || !replace(ua, ua, outbuf, m, 0)) break;
+        pg += m;
+        ra += m;
+        left -= m;
+    }
+    ua = (unsigned)(pg - win_base);
+    if (clip_end != here && ua < doclen && !IS_MARK(text[ua])) {
+        mark = MARK(here);
+        replace(ua, ua, &mark, 1, 0);
+    }
+    jr_blk = 0;
+    jr_off = 0;
+    blk_end(ua);
+}
+
+static void select_all_(void)
+{
+    static dpos tot;
+    unsigned k;
+    tot = doc_total();
+    if (!tot) return;
+    if (reu_on) relocate(para_start(tot > 400 ? tot - 400 : 0));    /* la fin du document dans la fenetre */
+    if (win_base + doclen < tot) tot = win_base + doclen;       /* paragraphe trop long : jusqu'au bout de la fenetre */
+    agl = 0;
+    anchor = 0;
+    cursor = (unsigned)(tot - win_base);
+    anchor_fix();
+    k = line_of(cursor);
+    top = k >= VISIBLE ? k - VISIBLE + 1 : 0;
+    draw_text_area();
+    place_cursor();
+    draw_status();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned char bdel(void) { ovl_load(5); return bdel_(); }
+static void copy_selection(void) { ovl_load(5); copy_(); }
+static void cut_selection(void) { ovl_load(5); cut_(); }
+static void paste(void) { ovl_load(5); paste_(); }
+static void select_all(void) { ovl_load(5); select_all_(); }
+#else
 /* Presse-papiers : marqueur du style de depart, puis le texte et ses marqueurs. */
 static void copy_selection(void)
 {
@@ -2392,6 +2755,8 @@ static void paste(void)
     }
 }
 
+#endif
+
 /* Style : sur la selection s'il y en a une, sinon pour la frappe. bit = 0 : normal.
    La selection et la suite du texte sont deplacees en haut du tampon, puis la
    selection est reecrite en un seul passage avec ses nouveaux marqueurs. */
@@ -2415,6 +2780,9 @@ static void APPLY_STYLE(unsigned char bit)
         draw_status();
         return;
     }
+#ifdef REU
+    if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, 0, 0); return; }
+#endif
     a = sel_lo();
     b = sel_hi();
     start_st = old_st = style_before(a);
@@ -2459,6 +2827,9 @@ static void APPLY_STYLE(unsigned char bit)
     jr_log(a, b - a, w - a);
 #endif
     anchor = a;
+#ifdef REU
+    agl = win_base + a;
+#endif
     cursor = sel_end;
     first = relayout(a, b, w, &all);
     if (!all && relayout_last < line_of(sel_end)) relayout_last = line_of(sel_end);
@@ -2723,13 +3094,15 @@ static void load_rtf(void)
     unsigned k;
     dpos off, total;
     int n;
+    scan_dir(filename);                         /* la taille du fichier (en blocs) pour la barre de progression */
     strcpy(cmdname, filename);
     strcat(cmdname, ",S,R");
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
-    win_base = suf_len = lines_before = 0;
+    win_base = suf_len = lines_before = 0; lines_exact = 1;
     win_style = sc_ok = doclen = 0;
     first_mark = 0xFFFFFFFFUL;
+    pg_begin(S_LOADING, (dpos)blk_old << 8);
     rcur = remit = rdepth = rfirst = rst = rskip = rfull = 0;
     ruc = 1;
     while ((n = cbm_read(2, outbuf, 256)) > 0) {
@@ -2738,10 +3111,12 @@ static void load_rtf(void)
             if (n < 5 || memcmp(outbuf, "{\\rtf", 5)) { ok = 0; break; }
         }
         for (k = 0; k < (unsigned)n; ++k) r_byte(outbuf[k]);
+        pg_add((unsigned)n);
         if (rfull) break;
     }
     cbm_close(2);
     disk_busy(0);
+    pg_end();
     op_ok = ok;
     if (ok) {
         r_flush();
@@ -2769,6 +3144,18 @@ static void load_rtf(void)
     if (rfull) message(S_OPENRTF, S_FULL, 0, 0);
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+/* L'ecriture RTF est dans l'overlay 6 (avec save_doc et load_named) : l'overlay 1 est plein. */
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
+/* Unicode des codes internes 128 a 181 (copie de ucode, pour cet overlay). */
+static const unsigned ucode_w[54] = {
+    0xE0, 0xE2, 0xE4, 0xE7, 0xE9, 0xE8, 0xEA, 0xEB, 0xEE, 0xEF, 0xF4, 0xF6, 0xF9, 0xFB, 0xFC,
+    0xC0, 0xC2, 0xC7, 0xC9, 0xC8, 0xCA, 0xCB, 0xCE, 0xCF, 0xD4, 0xD9, 0xDB, 0xDC,
+    0x153, 0x152, 0xAB, 0xBB, 0xB0, 0x20AC, 0xE6, 0xF8, 0xE5, 0xC6, 0xD8, 0xC5,
+    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190
+};
 /* Ecrit tout le document en RTF (octets non ASCII : \uN?). */
 static unsigned char *w_str(unsigned char *o, const char *s)
 {
@@ -2782,7 +3169,7 @@ static char rtfname[22];
 
 static void rtf_put(unsigned n)
 {
-    if (rtf_dry) rtf_tot += n; else cbm_write(2, outbuf, n);
+    if (rtf_dry) rtf_tot += n; else { cbm_write(2, outbuf, n); pg_add(n); }
 }
 
 static void rtf_body(void)
@@ -2811,7 +3198,7 @@ static void rtf_body(void)
                 o = w_str(o, "\\par\n");
             } else if (c >= 128) {
                 o = w_str(o, "\\u");
-                o = (unsigned char *)utoa_simple((char *)o, c - 128u < sizeof ucode / 2 ? ucode[c - 128] : '?');
+                o = (unsigned char *)utoa_simple((char *)o, c - 128u < sizeof ucode_w / 2 ? ucode_w[c - 128] : '?');
                 *o++ = '?';
             } else if (c >= 32) {
                 if (c == '\\' || c == '{' || c == '}') *o++ = '\\';
@@ -2831,12 +3218,14 @@ static unsigned char write_rtf(char *name)
     rtf_body();
     rtf_dry = 0;
     if (!fit_check(rtf_tot, name)) return 0;
+    pg_begin(S_SAVING, rtf_tot);
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
         rtf_body();
         cbm_close(2);
     }
     disk_busy(0);
+    pg_end();
     if (disk_status() >= 20) { show_disk_error(); return 0; }
     dirty = 0;
     draw_status();
@@ -2860,12 +3249,12 @@ static void save_rtf(void)
 #pragma code-name (pop)
 
 static void rtf_open(void) { ovl_load(1); load_rtf(); }
-static void rtf_save(void) { op_ok = 0; ovl_load(1); save_rtf(); if (op_ok) bck_saved(); }
+static void rtf_save(void) { op_ok = 0; ovl_load(6); save_rtf(); if (op_ok) bck_saved(); }
 static unsigned char rtf_write(char *name)
 {
     unsigned char r;
     op_ok = 0;
-    ovl_load(1);
+    ovl_load(6);
     r = write_rtf(name);
     if (op_ok) bck_saved();
     return r;
@@ -2945,6 +3334,7 @@ static void quick_save_(void)
     hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
     hd[8] = (unsigned char)base_sig; hd[9] = (unsigned char)(base_sig >> 8);
     hd[10] = (unsigned char)(jr_len - jb); hd[11] = (unsigned char)((jr_len - jb) >> 8); hd[12] = (unsigned char)((jr_len - jb) >> 16);
+    pg_begin(S_SAVING, jr_len - jb);
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
         cbm_write(2, hd, 13);
@@ -2952,6 +3342,7 @@ static void quick_save_(void)
         cbm_close(2);
     }
     disk_busy(0);
+    pg_end();
     if (disk_status() >= 20) { show_disk_error(); return; }
     dirty = 0;
     shown_dirty = 255;
@@ -2968,8 +3359,9 @@ static void bck_replay(dpos total)
     done = 0;
     while (done + 7u <= total && cbm_read(2, h, 7) == 7) {
         gp = h[0] | ((dpos)h[1] << 8) | ((dpos)h[2] << 16);
-        del = h[3] | (h[4] << 8);
+        del = h[3] | ((h[4] & 0x3F) << 8);
         ins = h[5] | (h[6] << 8);
+        jr_blk = (h[4] & 0x80) ? ((h[4] & 0x40) ? 1 : 2) : 0;       /* les operations en bloc restent des blocs */
         done += 7 + ins;
         if (done > total) break;
         if (gp > win_base + doclen + suf_len) break;
@@ -2978,9 +3370,9 @@ static void bck_replay(dpos total)
         if (del && !replace((unsigned)(gp - win_base), (unsigned)(gp - win_base) + del, 0, 0, 0)) break;
         while (ins) {
             k = ins > 400 ? 400 : ins;
-            if (cbm_read(2, outbuf, k) != (int)k) return;
             if (MAXDOC - doclen < ROOM + 400 || gp < win_base || gp > win_base + doclen)
-                relocate(para_start(gp > 400 ? gp - 400 : 0));
+                relocate(para_start(gp > 400 ? gp - 400 : 0));      /* avant de lire : para_start se sert d'outbuf */
+            if (cbm_read(2, outbuf, k) != (int)k) return;
             if (!replace((unsigned)(gp - win_base), (unsigned)(gp - win_base), outbuf, k, 0)) return;
             gp += k;
             ins -= k;
@@ -3008,6 +3400,7 @@ static void bck_loaded_(void)
                 && base_sig == (hd[8] | (hd[9] << 8))) {
                 quiet = 1;
                 bck_replay(total);
+                jr_blk = 0;
                 quiet = 0;
                 good = 1;
             } else bad = 1;
@@ -3042,15 +3435,18 @@ static unsigned udel, uins;
 static unsigned ua;                             /* position (fenetre) apres la modification */
 static dpos ugp;                                /* idem, globale */
 
+static unsigned char uf;                        /* drapeaux de l'enregistrement lu */
+
 static void u_hdr(dpos at)
 {
     reu_move(1, uh, JR_BASE + at, 7);
     ug = uh[0] | ((dpos)uh[1] << 8) | ((dpos)uh[2] << 16);
-    udel = uh[3] | (uh[4] << 8);
+    udel = uh[3] | ((uh[4] & 0x3F) << 8);
+    uf = uh[4] & 0xC0;
     uins = uh[5] | (uh[6] << 8);
 }
 
-/* Le dernier enregistrement disparait : le precedent (cherche depuis le debut) devient le dernier. */
+/* Le dernier enregistrement disparait : le precedent devient le dernier (son debut est dans la pile L). */
 static void u_pop(void)
 {
     rl -= udel;
@@ -3063,6 +3459,7 @@ static void u_pop(void)
         jr_lp = ug;
         jr_ld = jr_len <= jb ? 0xFFFF : udel;
         jr_li = uins;
+        jr_lf = uf;
     }
     if (jr_len < jb) jr_ok = 0;
 }
@@ -3098,8 +3495,11 @@ static void u_put(dpos ra, unsigned n)
     unsigned k, m;
     for (k = 0; k < n; k += m) {
         m = n - k > 400 ? 400 : n - k;
-        reu_move(1, outbuf, ra + k, m);
-        if (MAXDOC - doclen < ROOM + 400 || ugp < win_base || ugp > win_base + doclen) u_win(ugp, 0);
+        if (MAXDOC - doclen < ROOM + 400) {     /* fenetre pleine : elle repart juste avant ugp */
+            relocate(para_start(ugp > 400 ? ugp - 400 : 0));
+            ua = (unsigned)(ugp - win_base);
+        } else if (ugp < win_base || ugp > win_base + doclen) u_win(ugp, 0);
+        reu_move(1, outbuf, ra + k, m);         /* apres le deplacement de la fenetre : para_start se sert d'outbuf */
         if (!replace(ua, ua, outbuf, m, 0)) break;
         ua += m;
         ugp += m;
@@ -3141,9 +3541,19 @@ static void u_far(void)
 #endif
 }
 
+/* Annule un enregistrement entier (journal, banque R). Renvoie 0 si la fenetre ne peut pas l'atteindre. */
+static unsigned char u_full(void)
+{
+    if (!u_win(ug, 0)) return 0;
+    u_del(ug, uins);
+    u_put(R_BASE + rl - udel, udel);
+    u_pop();
+    return 1;
+}
+
 static void undo_(void)
 {
-    static unsigned char part, e;
+    static unsigned char part, e, cont;
     static unsigned k;
     for (;;) {
         if (!jr_n) { u_none(); return; }
@@ -3152,8 +3562,8 @@ static void undo_(void)
         u_pop();                                /* enregistrement vide (frappe effacee) : on passe */
     }
     quiet = jr_off = 1;
-    part = 0;
-    if (!udel && uins > 1) {                    /* frappe : une lettre par pas (avec son marqueur de style) */
+    part = e = 0;
+    if (!udel && uins > 1 && !(uf & 0x80)) {    /* frappe : une lettre par pas (avec son marqueur de style) */
         if (!u_win(ug + uins - 2, 2)) { u_far(); return; }   /* les deux derniers octets de la frappe */
         k = IS_MARK(text[ua]) ? 2 : 1;
         if (k < uins) part = (unsigned char)k;
@@ -3166,14 +3576,15 @@ static void undo_(void)
             if (jr_len < jb) jr_ok = 0;
         }
         ua += 2 - part;
+        e = 0x80 | part;
     } else {
-        if (!u_win(ug, 0)) { u_far(); return; }
-        u_del(ug, uins);
-        u_put(R_BASE + rl - udel, udel);
-        u_pop();
+        do {                                    /* un bloc (coller, grande suppression) = plusieurs enregistrements */
+            cont = uf & 0x40;
+            if (!u_full()) { u_far(); return; }
+            ++e;
+        } while (cont && jr_n);
     }
     if (redo_n >= d_max) redo_n = 0;
-    e = part;
     reu_move(0, &e, d_base + redo_n, 1);
     ++redo_n;
     u_end();
@@ -3194,25 +3605,28 @@ static void redo_(void)
     }
     reu_move(1, &e, d_base + redo_n - 1, 1);
     quiet = jr_off = 1;
-    if (e) {                                    /* une lettre de plus dans l'enregistrement de frappe */
+    if (e & 0x80) {                             /* une lettre de plus dans l'enregistrement de frappe */
+        e &= 0x7F;
         u_hdr(jr_last);
         if (!u_win(ug + uins, 0)) { u_far(); return; }
         u_put(JR_BASE + jr_len, e);
         jr_lp = ug; jr_ld = 0; jr_li = uins + e;
         jr_len += e;
         jr_hdr();
-    } else {                                    /* l'enregistrement defait revient */
-        u_hdr(jr_len);
-        g0 = ug;
-        k = uins;
-        if (!u_win(g0, 0)) { u_far(); return; }
-        u_del(g0, udel);
-        u_put(JR_BASE + jr_len + 7, k);
-        jr_last = jr_len;
-        ++jr_n;                                 /* son debut est encore dans la pile L */
-        jr_lp = g0; jr_ld = udel; jr_li = k;
-        jr_len += 7 + k;
-        rl += udel;
+    } else {                                    /* les enregistrements defaits reviennent, dans l'ordre */
+        while (e--) {
+            u_hdr(jr_len);
+            g0 = ug;
+            k = uins;
+            if (!u_win(g0, 0)) { u_far(); return; }
+            u_del(g0, udel);
+            u_put(JR_BASE + jr_len + 7, k);
+            jr_last = jr_len;
+            ++jr_n;                             /* son debut est encore dans la pile L */
+            jr_lp = g0; jr_ld = udel; jr_li = k; jr_lf = uf;
+            jr_len += 7 + k;
+            rl += udel;
+        }
     }
     --redo_n;
     u_end();
@@ -3254,6 +3668,16 @@ static void f1_save(void)
 /* ------------------------------------------------------------------ */
 /* Menus                                                               */
 
+/* Couleurs suivantes : ecran et, sur REU, les leds du C64U. */
+static void cycle_theme(void)
+{
+    next_theme();
+    redraw_all();
+#ifdef REU
+    led_theme(theme_no);
+#endif
+}
+
 static unsigned char run_menu(unsigned char m)
 {
     unsigned char n = 0, i, hover = 255, row, choice = 255;
@@ -3274,6 +3698,11 @@ static unsigned char run_menu(unsigned char m)
         if (m == 2 && ((i && (style & (1 << (i - 1)))) || (!i && !style)) && !has_selection()) {
             put_text(x0 + 4, row, "*", 0);
         }
+#ifdef HUN
+        if (m == 4 && ((i == 2 && sound_on) || (i == 3 && overwrite))) put_text(x0 + 4, row, "*", 0);
+#elif defined(REU)
+        if (m == 4 && i == 1 && sound_on) put_text(x0 + 4, row, "*", 0);
+#endif
     }
     for (;;) {
         poll_mouse();
@@ -3316,6 +3745,8 @@ static void do_menu(unsigned char m, unsigned char item)
             if (!reu_on) message(S_SAVERTF, S_NEEDREU, 0, 0);
             else rtf_save();
         }
+        if (item == 6) reload_doc(0);           /* le fichier du disque, sans le .bck */
+        if (item == 7) reload_doc(1);           /* le fichier et son .bck */
 #else
         if (item == 2) save_doc();
         if (item == 3 && ask_filename()) save_doc();
@@ -3325,7 +3756,11 @@ static void do_menu(unsigned char m, unsigned char item)
         if (item == 0) cut_selection();
         if (item == 1) copy_selection();
         if (item == 2) paste();
+#ifdef REU
+        if (item == 3) select_all();
+#else
         if (item == 3) set_selection(0, doclen);
+#endif
         if (item == 4) find_dialog();
         if (item == 5) find_next();
 #ifdef REU
@@ -3334,6 +3769,9 @@ static void do_menu(unsigned char m, unsigned char item)
 #endif
         break;
     case 2:
+#ifdef REU
+        if (item == 4) { cycle_theme(); break; }
+#endif
         apply_style(item ? (unsigned char)(1 << (item - 1)) : 0);
         break;
     case 3:
@@ -3342,6 +3780,10 @@ static void do_menu(unsigned char m, unsigned char item)
     case 4:
 #ifdef HUN
         if (item == 1) { hun_toggle(); break; }
+        if (item == 2) { sound_on ^= 1; key_click(); break; }
+        if (item == 3) { overwrite ^= 1; draw_status(); break; }
+#elif defined(REU)
+        if (item == 1) { sound_on ^= 1; key_click(); break; }
 #endif
         message(S_ABOUT, S_ABOUT1, S_ABOUT3, 0);
         break;
@@ -3530,7 +3972,6 @@ static void cursor_moved(void)
 #define CLICK_NOISE_FREQ  0x58          /* octet haut de la frequence du bruit */
 #define CLICK_NOISE_DECAY 0x00          /* 0 = 6 ms, 1 = 24 ms, 2 = 48 ms */
 #define CLICK_VOLUME      15
-static unsigned char sound_on = 1;
 
 static void key_click(void)
 {
@@ -3624,11 +4065,7 @@ static void handle_key(unsigned char k)
     case 0x8A: paste(); return;
     case 0x8B: cut_selection(); return;
     case 0x8C: find_next(); return;
-    case 0x06: next_theme(); redraw_all();             /* CTRL + fleche gauche (en HUN la touche du zero) : couleurs */
-#ifdef REU
-        led_theme(theme_no);                            /* et les leds du C64U */
-#endif
-        return;
+    case 0x06: cycle_theme(); return;                  /* CTRL + fleche gauche (en HUN la touche du zero) : couleurs */
 #ifdef REU
     case 0x1A: undo(); break;
     case 0x19: redo(); break;                           /* CTRL+Z, RESTORE : annuler */
@@ -3689,10 +4126,60 @@ static void sbar_goto(unsigned y)
 
 /* Clic ou glissement : le curseur suit la souris tout de suite, le texte
    suit quand la souris s'arrete un instant (6 images) et au relachement. */
+/* Un oldal : le curseur et l'ecran avancent (ou reculent) de VISIBLE - 1 lignes, en deux temps pour
+   que la fenetre ait le temps de glisser. */
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
+static void page_step_(unsigned char down)
+{
+    unsigned char part, guard;
+    unsigned i, ni, n, x;
+    clear_selection();
+    for (part = 0; part < 3; ++part) {          /* trois fois (VISIBLE - 1) / 3 lignes : la fenetre glisse entre-temps */
+        n = (VISIBLE - 1) / 3;
+        for (guard = 0; !down && guard < 12; ++guard) {   /* vers le haut : assez de lignes avant le curseur (un paragraphe par glissement) */
+            i = line_of(cursor);
+            if (i >= n + 6 || !win_base) break;
+            slide_back();
+        }
+        i = line_of(cursor);
+        x = cursor_x();
+        if (down) {
+            ni = i + n < nlines ? i + n : nlines - 1;
+            top += ni - i;
+        } else {
+            ni = i > n ? i - n : 0;
+            n = i - ni;
+            top = top > n ? top - n : 0;
+        }
+        cursor = pos_at(ni, x);
+        maybe_slide();
+    }
+    if (!suf_len && top + VISIBLE > nlines) top = nlines > VISIBLE ? nlines - VISIBLE : 0;
+    draw_text_area();
+    cursor_moved();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void page_step(unsigned char down) { ovl_load(6); page_step_(down); }
+
 static void sbar_drag(void)
 {
     unsigned yy = mouse_y > TEXT_ROW0 * 8 ? mouse_y - TEXT_ROW0 * 8 : 0, ty = sbar_ty(), y, shown = 0xFFFF;
-    unsigned char off = (yy >= ty && yy < ty + 16) ? (unsigned char)(yy - ty) : 8, since = PEEK(0xA2), todo = 0;
+    unsigned char off = (unsigned char)(yy - ty), since = PEEK(0xA2), todo = 0, first = 1, down;
+    if (yy < ty || yy >= ty + 16) {             /* clic au-dessus / au-dessous du curseur : page par page */
+        down = yy >= ty;
+        do {
+            page_step(down);
+            since = PEEK(0xA2);
+            do poll_mouse(); while (held && (unsigned char)(PEEK(0xA2) - since) < (first ? 25 : 7));
+            first = 0;
+            yy = mouse_y > TEXT_ROW0 * 8 ? mouse_y - TEXT_ROW0 * 8 : 0;
+            ty = sbar_ty();
+            if (down ? ty + 16 > yy : yy >= ty) break;     /* le curseur a rejoint la souris */
+        } while (held);
+        return;
+    }
     do {
         yy = mouse_y > TEXT_ROW0 * 8 ? mouse_y - TEXT_ROW0 * 8 : 0;
         y = yy > off ? yy - off : 0;
@@ -3776,6 +4263,9 @@ static void handle_click(void)
     else cursor = p;
     cursor_moved();
     anchor = p;
+#ifdef REU
+    agl = win_base + p;
+#endif
     while (held) {
         poll_mouse();
         p = pos_at_mouse();
