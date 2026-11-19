@@ -128,7 +128,11 @@ const unsigned char themes[NTHEMES][5] = {
 unsigned char text[MAXDOC];               /* exporte pour next_line_asm */
 /* Tampon d'impression : une ligne du mode Texte, ou la sortie d'une passe du
    mode Graphique. Libre autrement. */
+#ifdef REU
+#define outbuf ((unsigned char *)0x0540)       /* $0540-$0722 : ecran texte inutilise ($0400 : tampon des rangees) */
+#else
 static unsigned char outbuf[PRINT_CARDS_ * 8 + 3];
+#endif
 unsigned doclen;
 static unsigned nlines;
 static unsigned relayout_last;
