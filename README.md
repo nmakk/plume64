@@ -40,7 +40,7 @@
 | `C=` + `P` | œ |
 | `C=` + `-` | `_` (tiret bas) |
 | `£` | € |
-| `F1` | Enregistrer |
+| `F1` | Enregistrer (éditions REU : sauvegarde rapide) |
 | `F3` / `F5` / `F7` | Gras / italique / souligné |
 | `F2` / `F4` / `F6` | Copier / coller / couper |
 | `F8` | Rechercher le suivant |
@@ -75,17 +75,44 @@ Sous `C=`, Plume lit la matrice du clavier lui-même : le KERNAL ne sait pas fai
 
 ### Version REU (documents jusqu'à 16 Mo, RTF)
 
-`make` produit aussi `build/plume-fr-2.2e.crt`, `plume-en-2.2e.crt`, `plume-dk-2.2e.crt` et `plume-hu-2.2e.crt` (cartouche Magic Desk). Elles demandent une extension REU d'au moins 256 Ko (sur un C64 Ultimate : REU 16 Mo activée) et gardent tout le document dans le REU : jusqu'à 16 Mo, au lieu de 20 000 caractères. Le texte est affiché par une fenêtre glissante de 3 250 octets. **Plume 2.2e (enhanced)** ajoute aussi : defilement a la molette de la souris avec acceleration (C64 Ultimate, Mouse Mode *Mouse + Wheel* ; au demarrage Plume regle *Mouse Wheel Sensitivity* sur 1), un clic de touche (CTRL+9 l'active ou le coupe) et, sur C64 Ultimate, des LED clavier et boitier qui suivent le theme de couleurs (CTRL+←). Le code des LED est dans sa propre banque de la cartouche (`src/led.s`) et parle a l'Ultimate par la cible HTTP de l'UCI (firmware 3.15 / C64U 1.2 ou plus) ; sans UCI il revient aussitot.
+`make` produit aussi `build/plume-fr-2.2e.crt`, `plume-en-2.2e.crt`, `plume-dk-2.2e.crt` et `plume-hu-2.2e.crt` (cartouche Magic Desk). Elles demandent une extension REU d'au moins 256 Ko (sur un C64 Ultimate : REU 16 Mo activée) et gardent tout le document dans le REU : jusqu'à 16 Mo, au lieu de 20 000 caractères. Le texte est affiché par une fenêtre glissante de 3 250 octets.
 
-- **Fichiers RTF** : *File → Open…* reconnaît seul un fichier RTF (Word, LibreOffice : gras, italique, souligné, accents cp1252 et `\uN?`) ou un fichier Plume ; *Save as RTF…* écrit du RTF. Un document de 250 Ko (un roman) tient sur une disquette `.d81`, pas sur un `.d64`.
-- **Documents de plus de 64 Ko** : enregistrés au format PLM3 (les anciens PLM1/PLM2 restent lisibles ; les éditions sans REU ne lisent pas PLM3).
-- **Fichiers RTF** (suite) : après l'ouverture d'un RTF, le titre est le nom du fichier et `F1` (Enregistrer) réécrit le même fichier en RTF. *Save as RTF…* donne ce nom au document. *Save as…* enregistre au format Plume.
-- **Liste des fichiers** (Open, Save as, Save as RTF) : un fichier par ligne, précédé de sa taille en blocs, avec les blocs libres ; 13 fichiers par page, des flèches haut/bas (ou les touches curseur) tournent les pages. *New…* permet de taper un nouveau nom, un nom de la liste est écrasé.
-- **Place sur le disque** : avant d'enregistrer, Plume calcule les blocs nécessaires. Si la copie ne tient pas à côté de l'ancienne mais tient à sa place, il propose d'effacer d'abord l'ancien fichier. Sinon il indique les blocs nécessaires et libres.
+- **Ouvrir** : *File → Open…* reconnaît seul un fichier RTF (Word, LibreOffice : gras, italique, souligné, accents cp1252 et `\uN?`) ou un fichier Plume. Un document de 250 Ko (un roman) tient sur une disquette `.d81`, pas sur un `.d64`.
+- **Enregistrer** : *File → Save* écrit tout le document dans le format du fichier (RTF s'il vient d'un RTF, sinon Plume), *Save as…* au format Plume, *Save as RTF…* en RTF. Les documents de plus de 64 Ko sont enregistrés au format PLM3 (les anciens PLM1/PLM2 restent lisibles ; les éditions sans REU ne lisent pas PLM3).
+- **Sauvegarde rapide** (`F1`, *File → Quick save*) : n'écrit que les modifications faites depuis le dernier enregistrement complet, dans `NOM.bck`, à côté du fichier. Plume tient ce journal dans le REU. Un enregistrement complet (*File → Save*) efface le `.bck`. À l'ouverture, un `.bck` qui correspond au fichier est rejoué automatiquement (« Quick save restored »). Un `.bck` qui ne correspond pas (fichier modifié ailleurs) est ignoré avec un message. Sans fichier de base (document nouveau), `F1` fait un enregistrement complet.
+- **Disque plein** : avant d'enregistrer, Plume calcule les blocs nécessaires. Si la copie ne tient pas à côté de l'ancienne mais tient à sa place, il propose d'effacer d'abord l'ancien fichier. Sinon il indique les blocs nécessaires et libres, puis propose d'effacer un autre fichier (avec confirmation) ou de changer de disque (*Cancel* dans la liste) et recompte : on ne peut pas se retrouver sans pouvoir enregistrer.
+- **Liste des fichiers** (Open, Save as, Save as RTF) : un fichier par ligne, précédé de sa taille en blocs, avec les blocs libres ; 13 fichiers par page, des flèches haut/bas (ou les touches curseur) tournent les pages. *New…* permet de saisir un nouveau nom, choisir un nom de la liste l'écrase.
+- **Souris** : double clic = sélectionne le mot, triple clic = la phrase. La molette (C64 Ultimate, Mouse Mode *Mouse + Wheel* ; Plume règle *Mouse Wheel Sensitivity* sur 1 au démarrage) fait défiler avec accélération.
 - **Barre de défilement** à droite, recherche dans tout le document, impression par morceaux.
-- **Disque** : pendant les accès disque Plume masque les sprites, sinon JiffyDOS retombe en transfert série lent. Avec JiffyDOS : environ 3 Ko/s en lecture.
+- **Couleurs** : `CTRL` + `←` passe au jeu de couleurs suivant (sur un C64 Ultimate, les LED du clavier et du boîtier suivent). `CTRL` + `9` active ou coupe le clic de touche.
+- **Disque** : pendant les accès disque Plume masque les sprites, sinon JiffyDOS retombe en transfert série lent (environ 3 Ko/s en lecture avec JiffyDOS). Ne lisez pas la mémoire du C64 Ultimate par l'API REST pendant un accès disque.
 - Depuis un Mac : [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) et [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) téléchargent et déposent des fichiers dans une image disque sur un C64 Ultimate (FTP + `c1541`).
-- Limites : `\ansicpg1250` (ő ű en `\'f5`) n'est pas traité ; charger un très gros fichier par l'IEC est très lent.
+- Limites : `\ansicpg1250` (ő ű en `\'f5`) n'est pas traité ; charger un très gros fichier par l'IEC est très lent ; pas de couleurs de texte RTF.
+- Technique : le code RTF, l'impression et la sauvegarde rapide sont des *overlays* rangés dans des banques de la cartouche (`plume-reu.cfg`, `ovl_load` dans `src/reu.s`) et copiés dans une zone commune de la RAM quand on en a besoin ; le code des LED est dans la banque 62 (`src/led.s`, cible HTTP de l'UCI, firmware 3.15 / C64U 1.2 ou plus).
+
+#### Clavier HUN (édition hongroise REU)
+
+`plume-hu-2.2e.crt` démarre avec le clavier **HUN** : la disposition hongroise sur les touches du C64 (les lettres restent en QWERTY). **`C=` + `Espace`** (ou *? → HUN / C64 keys*) bascule vers le clavier **C64** (la couche `C=` décrite plus haut) et inversement ; la barre d'état affiche `HUN` ou `C64`.
+
+| Touche (légende C64) | Normal | `Shift` |
+|---|---|---|
+| `←` | 0 | ? |
+| `1` … `9` | 1 … 9 | `'` `"` `+` `!` `%` `/` `=` `(` `)` |
+| `0` (Ö) | ö | Ö |
+| `+` (Ü) | ü | Ü |
+| `-` (Ó) | ó | Ó |
+| `↑` (Í) | í | Í |
+| `@` (Ő) | ő | Ő |
+| `*` (Ú) | ú | Ú |
+| `:` (É) | é | É |
+| `;` (Á) | á | Á |
+| `=` (Ű) | ű | Ű |
+| `£` | Tab (4 espaces) | `-` |
+| `,` `.` `/` | `,` `.` `/` | `<` `>` `?` |
+| `CLR/HOME` | début de ligne ; déjà au début : fin de ligne | suppression vers l'avant (répétée comme `INST/DEL`) |
+| `INST/DEL` | suppression arrière | bascule insertion / écrasement |
+
+`C=` + `É` `Á` `Ú` `Ő` donne `:` `;` `*` `@` ; `C=` + `3` `4` `6` donne `#` `$` `&` ; `C=` + `-` donne `_`. `CTRL` reste à sa place, `RUN/STOP` est Échap. La barre d'état montre `I` (insertion) ou `O` (écrasement). Le même `Shift` + `CLR/HOME` fait la suppression vers l'avant aussi sur le clavier C64.
 
 ### Joystick
 
@@ -163,9 +190,44 @@ Les cartouches sont dans `build/plume-fr.crt`, `build/plume-en.crt`, `build/plum
 
 **Hungarian edition** (`dist/plume-hu.crt`, English menus): the `C=` layer follows the `AltGr` positions of the Hungarian Programmers layout (`hu_prog`) on a QWERTY base: `C=`+`E`/`Y`/`U`/`I` give é/ü/ú/í, `C=`+`O`/`P`/`Q`/`W` give ó/ö/ő/ű, `C=`+`A` gives á. Hold `Shift` as well for É Ü Ú Í Ó Ö Ő Ű Á. The Hungarian edition was created by **mkckOner**, who drew the letters and wrote the keyboard code.
 
-**REU edition (documents up to 16 MB, RTF)**: `make` also builds `build/plume-fr-2.2e.crt`, `plume-en-2.2e.crt`, `plume-dk-2.2e.crt` and `plume-hu-2.2e.crt` (Magic Desk cartridge). They need a REU of at least 256 KB (on a C64 Ultimate: enable the 16 MB REU) and keep the whole document in the REU: up to 16 MB instead of 20,000 characters, shown through a sliding 3,250-byte window. *File → Open…* recognises an RTF file (Word, LibreOffice: bold, italic, underline, cp1252 accents and `\uN?`) or a Plume file by itself, and *Save as RTF…* writes RTF. A 250 KB document (a novel) fits a `.d81` disk, not a `.d64`. Documents over 64 KB are saved as PLM3 (older PLM1/PLM2 stay readable; non-REU editions cannot read PLM3). After opening an RTF file the title is the file name and `F1` (Save) rewrites the same file as RTF; *Save as RTF…* gives the document that name, while *Save as…* saves in Plume format. The Open and Save dialogs list the files one per line with their size in blocks and the blocks free, 13 per page, with up/down arrows (or the cursor up/down keys) to turn pages; *New…* lets you type a new name, and picking a listed name overwrites it. Before saving, Plume checks that the file fits: if it fits only in place of the old file of the same name, it offers to delete the old one first, otherwise it shows the blocks needed and free. Also a scrollbar, search over the whole document and chunked printing. During disk access Plume hides the sprites, otherwise JiffyDOS falls back to slow serial transfer (about 3 KB/s reading with JiffyDOS). From a Mac, [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) and [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) fetch and store files in a disk image on a C64 Ultimate (FTP + `c1541`). Not handled: `\ansicpg1250` (ő ű as `\'f5`); loading a very large file over IEC is very slow. **Plume 2.2e (enhanced)** also adds: a *quick save* (F1, *File → Quick save*) that writes only the changes since the last full save to `NAME.bck` (a journal kept in the REU), while *File → Save* writes the whole document and deletes the `.bck`; *Open* replays a matching `.bck` on the file; when the disk is full Plume lets you delete a file or swap the disk; double click selects a word, triple click a sentence; and accelerating mouse-wheel scrolling (C64 Ultimate, Mouse Mode *Mouse + Wheel*; at startup Plume sets *Mouse Wheel Sensitivity* to 1), a key-click sound (CTRL+9 switches it on/off) and, on a C64 Ultimate, keyboard and case LEDs that follow the colour theme (CTRL+←). The LED code lives in its own cartridge bank (`src/led.s`) and talks to the Ultimate through the UCI HTTP target (firmware 3.15 / C64U 1.2 or later); without a UCI it returns at once.
+**REU edition (documents up to 16 MB, RTF)**: `make` also builds `build/plume-fr-2.2e.crt`, `plume-en-2.2e.crt`, `plume-dk-2.2e.crt` and `plume-hu-2.2e.crt` (Magic Desk cartridge). They need a REU of at least 256 KB (on a C64 Ultimate: enable the 16 MB REU) and keep the whole document in the REU: up to 16 MB instead of 20,000 characters, shown through a sliding 3,250-byte window.
 
-Keys: `F1` save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `RUN/STOP` cancels. Accented letters use `C=` plus a letter (see the table above): `C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç. In every edition, `C=`+`-` types an underscore `_`.
+- **Open**: *File → Open…* recognises an RTF file (Word, LibreOffice: bold, italic, underline, cp1252 accents and `\uN?`) or a Plume file by itself. A 250 KB document (a novel) fits a `.d81` disk, not a `.d64`.
+- **Save**: *File → Save* writes the whole document in the file's own format (RTF if it came from an RTF file, otherwise Plume), *Save as…* writes the Plume format, *Save as RTF…* writes RTF. Documents over 64 KB are saved as PLM3 (older PLM1/PLM2 stay readable; non-REU editions cannot read PLM3).
+- **Quick save** (`F1`, *File → Quick save*): writes only the changes made since the last full save to `NAME.bck` next to the file. Plume keeps this journal in the REU. A full save (*File → Save*) deletes the `.bck`. When you open a file, a matching `.bck` is replayed on it automatically ("Quick save restored"); a `.bck` that does not match (the file was changed elsewhere) is ignored with a message. A new document without a file does a full save on `F1`.
+- **Disk full**: before saving, Plume checks that the file fits. If it fits only in place of the old file of the same name, it offers to delete the old one first. Otherwise it shows the blocks needed and free, then lets you delete another file (with confirmation) or swap the disk (*Cancel* in the list) and counts again, so saving can never become impossible.
+- **File lists** (Open, Save as, Save as RTF): one file per line with its size in blocks and the blocks free, 13 per page, with up/down arrows (or the cursor up/down keys) to turn pages. *New…* lets you type a new name; picking a listed name overwrites it.
+- **Mouse**: double click selects a word, triple click a sentence. The mouse wheel (C64 Ultimate, Mouse Mode *Mouse + Wheel*; at startup Plume sets *Mouse Wheel Sensitivity* to 1) scrolls with acceleration.
+- Also a scrollbar, search over the whole document and chunked printing.
+- **Colours**: `CTRL` + `←` switches to the next colour theme (on a C64 Ultimate the keyboard and case LEDs follow it). `CTRL` + `9` switches the key-click sound on or off.
+- **Disk access**: Plume hides the sprites during disk access, otherwise JiffyDOS falls back to slow serial transfer (about 3 KB/s reading with JiffyDOS). Do not read the C64 Ultimate's memory over the REST API during disk access.
+- From a Mac, [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) and [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) fetch and store files in a disk image on a C64 Ultimate (FTP + `c1541`).
+- Not handled: `\ansicpg1250` (ő ű as `\'f5`); RTF text colours; loading a very large file over IEC is very slow.
+- Technical: the RTF code, printing and quick save are *overlays* stored in cartridge banks (`plume-reu.cfg`, `ovl_load` in `src/reu.s`) and copied into a shared RAM area when needed; the LED code lives in bank 62 (`src/led.s`, UCI HTTP target, firmware 3.15 / C64U 1.2 or later).
+
+**HUN keyboard (Hungarian REU edition)**: `plume-hu-2.2e.crt` starts with the **HUN** keyboard: the Hungarian layout on the C64 keys (letters stay QWERTY). **`C=` + `Space`** (or *? → HUN / C64 keys*) switches to the **C64** keyboard (the `C=` layer described above) and back; the status line shows `HUN` or `C64`.
+
+| Key (C64 legend) | Plain | `Shift` |
+|---|---|---|
+| `←` | 0 | ? |
+| `1` … `9` | 1 … 9 | `'` `"` `+` `!` `%` `/` `=` `(` `)` |
+| `0` (Ö) | ö | Ö |
+| `+` (Ü) | ü | Ü |
+| `-` (Ó) | ó | Ó |
+| `↑` (Í) | í | Í |
+| `@` (Ő) | ő | Ő |
+| `*` (Ú) | ú | Ú |
+| `:` (É) | é | É |
+| `;` (Á) | á | Á |
+| `=` (Ű) | ű | Ű |
+| `£` | Tab (4 spaces) | `-` |
+| `,` `.` `/` | `,` `.` `/` | `<` `>` `?` |
+| `CLR/HOME` | start of line; already there: end of line | delete forward (repeats like `INST/DEL`) |
+| `INST/DEL` | delete backwards | toggle insert / overwrite |
+
+`C=` + `É` `Á` `Ú` `Ő` gives `:` `;` `*` `@`; `C=` + `3` `4` `6` gives `#` `$` `&`; `C=` + `-` gives `_`. `CTRL` stays where it is, `RUN/STOP` is Esc. The status line shows `I` (insert) or `O` (overwrite). `Shift` + `CLR/HOME` deletes forward on the C64 keyboard too.
+
+Keys: `F1` save (REU editions: quick save), `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `RUN/STOP` cancels. Accented letters use `C=` plus a letter (see the table above): `C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç. In every edition, `C=`+`-` types an underscore `_`.
 
 No mouse? A joystick in port 2 (or port 1) moves the pointer: one pixel per frame for precise aiming, then faster while you hold it. Fire clicks; hold fire while moving to select text. Port 2 is better: port 1 shares its wires with the keyboard, so Plume ignores the keyboard while a port 1 joystick is moving.
 
