@@ -814,3 +814,19 @@ _blink_cursor:
 @off:   lda shown
         bne _cursor_off
         rts
+
+; RESTORE (NMI) : le vecteur du KERNAL ($0318) pointe sur un RTI, RUN/STOP+RESTORE ne relance plus le BASIC.
+        .export _nmi_off, _nmi_hit
+        .bss
+_nmi_hit: .res 1
+        .code
+_nmi_off:
+        sei
+        lda #<@rti
+        sta $0318
+        lda #>@rti
+        sta $0319
+        cli
+        rts
+@rti:   inc _nmi_hit            ; RESTORE = annuler (le programme lit le drapeau)
+        rti

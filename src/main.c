@@ -32,6 +32,8 @@ extern unsigned char cur_row;
 extern unsigned cur_px;
 void cur_place(void);
 void cursor_off(void);
+void nmi_off(void);
+extern unsigned char nmi_hit;
 void blink_cursor(void);
 extern unsigned char col[5], theme_no;
 void set_theme(void);
@@ -175,10 +177,19 @@ static dpos win_base;                   /* position dans le document de text[0] 
 /* Sauvegarde rapide : journal des modifications (dans le REU) -> fichier .bck. Le code est dans l'overlay 3. */
 static unsigned char op_ok;                     /* le chargement / l'enregistrement qui vient de finir a reussi */
 static unsigned char jr_ok;                     /* un journal valide existe (le document a un fichier de base) */
-static unsigned jr_len, jr_last = 0xFFFF;       /* longueur du journal, debut du dernier enregistrement */
+static dpos jr_len, jr_last;                    /* longueur du journal, debut du dernier enregistrement (valide si jr_n) */
+static unsigned jr_n;                           /* nombre d'enregistrements (leurs debuts : pile L) */
+static dpos jr_base, r_base, l_base, d_base, u_cap;   /* zones du REU : journal, octets supprimes, pile L, pile refaire ; taille du journal */
+static unsigned l_max, d_max;
 static dpos jr_lp;                              /* dernier enregistrement : position, octets supprimes / inseres */
 static unsigned jr_ld, jr_li;
 static void jr_log(unsigned a, unsigned del, unsigned n);
+static void jr_rem(unsigned a, unsigned n);
+static void cursor_moved(void);
+static void handle_key(unsigned char k);
+static dpos jb, rl;                         /* debut du journal depuis le dernier enregistrement ; octets supprimes gardes (annuler) */
+static unsigned char jr_off, bck_skip;
+static unsigned redo_n;                    /* annuler en cours : on ne journalise pas */
 static void quick_save(void);
 static void bck_saved(void);
 static void bck_loaded(void);
@@ -721,13 +732,17 @@ static void draw_status(void)
 
 #define NMENUS 5
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
-static const char *const menu_items[NMENUS][7] = {
+static const char *const menu_items[NMENUS][9] = {
 #ifdef RTF
     { S_NEW, S_OPEN, S_QSAVE, S_SAVE, S_SAVEAS, S_SAVERTF, 0 },
 #else
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
+#ifdef REU
+    { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, S_UNDO, S_REDO, 0 },
+#else
     { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
+#endif
     { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, 0 },
     { S_PGRAPH, S_PTEXT, S_PWIDE, 0 },
 #ifdef HUN
@@ -736,13 +751,17 @@ static const char *const menu_items[NMENUS][7] = {
     { S_ABOUT, 0 },
 #endif
 };
-static const char *const menu_keys[NMENUS][7] = {
+static const char *const menu_keys[NMENUS][9] = {
 #ifdef RTF
     { "", "", "F1", "", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
+#ifdef REU
+    { "F6", "F2", "F4", "", "", "F8", "^Z", "^Y", 0 },
+#else
     { "F6", "F2", "F4", "", "", "F8", 0 },
+#endif
     { "", "F3", "F5", "F7", 0 },
     { "", "", "", 0 },
 #ifdef HUN
@@ -999,7 +1018,7 @@ static unsigned char message(const char *title, const char *line1, const char *l
     for (;;) {
         poll_mouse();
         key = read_key();
-        if (key == CR || on_button(BTN_OK_X, DLG_ROW + 5)) { dialog_close(); return 1; }
+        if (key == CR || (key == 3 && !cancel) || on_button(BTN_OK_X, DLG_ROW + 5)) { dialog_close(); return 1; }
         if (cancel && (key == 3 || on_button(BTN_CANCEL_X, DLG_ROW + 5))) { dialog_close(); return 0; }
     }
 }
@@ -1071,6 +1090,9 @@ static unsigned char replace(unsigned a, unsigned b, const unsigned char *src, u
 #ifdef REU
     if (win_base + suf_len + (doclen - (b - a) + n) > suf_end) { message(S_FULL, 0, 0, 0); return 0; }
 #endif
+#ifdef REU
+    jr_rem(a, b - a);
+#endif
     memmove(&text[a + n], &text[b], doclen - b);
     if (from_io) io_hide();
     memcpy(&text[a], src, n);
@@ -1118,8 +1140,8 @@ static void reu_move(unsigned char fetch, void *mem, dpos ra, unsigned n)
 /* Journal de la sauvegarde rapide : dans le REU, apres les 4 Ko de bloc-notes de l'impression.
    Enregistrement : position (3), octets supprimes (2), octets inseres (2), puis les octets inseres.
    Les frappes qui se suivent prolongent le dernier enregistrement. */
-#define JR_BASE (suf_end + 0x1000UL)
-#define JR_MAX  61000u
+#define JR_BASE jr_base
+#define R_BASE  r_base                  /* octets supprimes (pour annuler) */
 
 static void jr_hdr(void)
 {
@@ -1130,13 +1152,26 @@ static void jr_hdr(void)
     reu_move(0, h, JR_BASE + jr_last, 7);
 }
 
+static void jr_clear(void)
+{
+    jr_len = jb = rl = 0;
+    jr_n = redo_n = 0;
+}
+
+/* Avant une modification : les octets supprimes vont dans la banque R (annuler). */
+static void jr_rem(unsigned a, unsigned n)
+{
+    if (n && !jr_off && rl + n <= u_cap) reu_move(0, text + a, R_BASE + rl, n);
+}
+
 static void jr_log(unsigned a, unsigned del, unsigned n)
 {
     dpos g = win_base + a;
-    if (!jr_ok || (!del && !n)) return;
-    if (jr_last != 0xFFFF && !jr_ld) {
-        if (!del && n && g == jr_lp + jr_li) {                          /* frappe : on prolonge */
-            if (jr_len + n > JR_MAX) { jr_ok = 0; return; }
+    if (jr_off || (!del && !n)) return;
+    redo_n = 0;
+    if (jr_n && !jr_ld) {
+        if (!del && n && jr_li < 0xF000u && g == jr_lp + jr_li) {       /* frappe : on prolonge */
+            if (jr_len + n > u_cap) { jr_ok = 0; jr_clear(); return; }
             reu_move(0, text + a, JR_BASE + jr_len, n);
             jr_len += n;
             jr_li += n;
@@ -1145,18 +1180,22 @@ static void jr_log(unsigned a, unsigned del, unsigned n)
         }
         if (del == 1 && !n && jr_li && g + 1 == jr_lp + jr_li) {        /* retour arriere sur du texte tape */
             --jr_len;
-            if (--jr_li) jr_hdr(); else { jr_len = jr_last; jr_last = 0xFFFF; }
+            --jr_li;
+            jr_hdr();
             return;
         }
     }
-    if (jr_len + 7u + n > JR_MAX) { jr_ok = 0; return; }
+    if (jr_len + 7u + n > u_cap || rl + del > u_cap || jr_n >= l_max) { jr_ok = 0; jr_clear(); return; }
     jr_last = jr_len;
+    reu_move(0, &jr_last, l_base + 3UL * jr_n, 3);              /* pile L : debut de chaque enregistrement */
+    ++jr_n;
     jr_lp = g;
     jr_ld = del;
     jr_li = n;
     jr_hdr();
     if (n) reu_move(0, text + a, JR_BASE + jr_len + 7, n);
     jr_len += 7 + n;
+    rl += del;
 }
 
 /* Taille du REU : la banque b renvoie sur la banque 0 quand b est la taille. */
@@ -1172,7 +1211,15 @@ static void reu_probe_size(void)
         reu_move(1, &got, 0UL, 1);
         if (got == 0x22) break;
     }
-    suf_end = (b ? (dpos)b << 16 : 0x1000000UL) - 0x10000UL;
+    suf_end = b ? (dpos)b << 16 : 0x1000000UL;          /* taille du REU */
+    /* Zone d'annulation en haut du REU : bloc-notes (4 Ko), journal, octets supprimes, pile L, pile refaire.
+       REU de 2 Mo ou plus : 256 Ko de journal ; plus petit : 32 Ko. */
+    if (suf_end >= 0x200000UL) { u_cap = 0x40000UL; l_max = 40000u; d_max = 4096u; suf_end -= 0xB0000UL; }
+    else { u_cap = 0x8000UL; l_max = 5000u; d_max = 512u; suf_end -= 0x20000UL; }
+    jr_base = suf_end + 0x1000UL;
+    r_base = jr_base + u_cap;
+    l_base = r_base + u_cap;
+    d_base = l_base + 3UL * l_max;
 }
 
 /* Ecrit sur le canal 2 n octets du REU a partir de ra, par morceaux de 256. */
@@ -1471,8 +1518,7 @@ static void new_doc(void)
 #endif
 #ifdef REU
     jr_ok = 0;
-    jr_len = 0;
-    jr_last = 0xFFFF;
+    jr_clear();
 #endif
     layout_all();
 }
@@ -2388,6 +2434,9 @@ static void APPLY_STYLE(unsigned char bit)
     }
     if (doclen + need + 1 > MAXDOC) { message(S_FULL, 0, 0, 0); return; }
     /* selection et suite en haut du tampon, puis reecriture en un passage */
+#ifdef REU
+    jr_rem(a, b - a);
+#endif
     rd = &text[MAXDOC - (doclen - a)];
     memmove(rd, &text[a], doclen - a);
     end = rd + (b - a);
@@ -2421,6 +2470,13 @@ static void APPLY_STYLE(unsigned char bit)
 static void apply_style(unsigned char bit) { ovl_load(3); apply_style_ov(bit); }
 #endif
 
+/* La recherche est dans l'overlay 2 (avec l'impression). */
+#ifdef REU
+#pragma code-name (push, "OVERLAY2")
+#pragma rodata-name (push, "OVERLAY2")
+#else
+#define find_next_ find_next
+#endif
 static unsigned char lower(unsigned char c)
 {
     return (c >= 'A' && c <= 'Z') ? c + 32 : c;
@@ -2473,7 +2529,7 @@ static void find_reu(unsigned char len)
 #endif
 
 /* Recherche sans tenir compte des majuscules ni des marqueurs de style. */
-static void find_next(void)
+static void find_next_(void)
 {
     unsigned char len = (unsigned char)strlen((char *)findtext), k;
     unsigned start = has_selection() ? sel_hi() : cursor, p, q, tries;
@@ -2497,6 +2553,11 @@ static void find_next(void)
     }
     message(S_FIND, S_NOTFOUND, 0, 0);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void find_next(void) { ovl_load(2); find_next_(); }
+#endif
 
 static void find_dialog(void)
 {
@@ -2510,12 +2571,12 @@ static void find_dialog(void)
 #pragma code-name (push, "OVERLAY1")
 #pragma rodata-name (push, "OVERLAY1")
 
-/* Unicode des codes internes 128 a 180 (voir font_map.txt). */
-static const unsigned ucode[53] = {
+/* Unicode des codes internes 128 a 181 (voir font_map.txt). */
+static const unsigned ucode[54] = {
     0xE0, 0xE2, 0xE4, 0xE7, 0xE9, 0xE8, 0xEA, 0xEB, 0xEE, 0xEF, 0xF4, 0xF6, 0xF9, 0xFB, 0xFC,
     0xC0, 0xC2, 0xC7, 0xC9, 0xC8, 0xCA, 0xCB, 0xCE, 0xCF, 0xD4, 0xD9, 0xDB, 0xDC,
     0x153, 0x152, 0xAB, 0xBB, 0xB0, 0x20AC, 0xE6, 0xF8, 0xE5, 0xC6, 0xD8, 0xC5,
-    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6
+    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190
 };
 /* Windows-1252, octets 0x80 a 0x9F. */
 static const unsigned cp1252_hi[32] = {
@@ -2846,20 +2907,19 @@ static unsigned doc_sig(void)
 }
 
 /* Le document est identique a son fichier : le journal repart de zero. */
-static void base_set(void)
+static void base_set(unsigned char keep)
 {
     base_len = doc_total();
     base_sig = doc_sig();
-    jr_len = 0;
-    jr_last = 0xFFFF;
+    if (!keep) jr_clear();                      /* enregistrement : le journal reste (annuler), seul son debut avance */
+    jb = jr_len;
+    jr_ld = 0xFFFF;                             /* pas de prolongation d'un enregistrement d'avant la base */
     jr_ok = filename[0] != 0;
 }
 
-/* Apres un enregistrement complet : nouvelle base, et le .bck n'a plus lieu d'etre. */
-static void bck_saved_(void)
+/* Efface le .bck (cmdname recoit la commande de suppression). */
+static void bck_del(void)
 {
-    base_set();
-    if (!jr_ok) return;
     make_bck();
     strcpy(cmdname, "S0:");
     strcat(cmdname, bckname);
@@ -2867,21 +2927,28 @@ static void bck_saved_(void)
     cbm_close(15);
 }
 
+/* Apres un enregistrement complet : nouvelle base, et le .bck n'a plus lieu d'etre. */
+static void bck_saved_(void)
+{
+    base_set(1);
+    if (jr_ok) bck_del();
+}
+
 static void quick_save_(void)
 {
-    static unsigned char hd[12];
-    if (!jr_len) { dirty = 0; shown_dirty = 255; draw_status(); return; }
+    static unsigned char hd[13];
+    if (jr_len == jb) { bck_del(); dirty = 0; shown_dirty = 255; draw_status(); return; }
     make_bck();
-    if (!fit_check(12UL + jr_len, bckname)) return;
-    memcpy(hd, "PBK1", 4);
+    if (!fit_check(13UL + jr_len - jb, bckname)) return;
+    memcpy(hd, "PBK2", 4);
     hd[4] = (unsigned char)base_len; hd[5] = (unsigned char)(base_len >> 8);
     hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
     hd[8] = (unsigned char)base_sig; hd[9] = (unsigned char)(base_sig >> 8);
-    hd[10] = (unsigned char)jr_len; hd[11] = (unsigned char)(jr_len >> 8);
+    hd[10] = (unsigned char)(jr_len - jb); hd[11] = (unsigned char)((jr_len - jb) >> 8); hd[12] = (unsigned char)((jr_len - jb) >> 16);
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
-        cbm_write(2, hd, 12);
-        write_reu(JR_BASE, jr_len);
+        cbm_write(2, hd, 13);
+        write_reu(JR_BASE + jb, jr_len - jb);
         cbm_close(2);
     }
     disk_busy(0);
@@ -2892,11 +2959,12 @@ static void quick_save_(void)
 }
 
 /* Rejoue les enregistrements du .bck (canal 2 ouvert, apres l'en-tete). */
-static void bck_replay(unsigned total)
+static void bck_replay(dpos total)
 {
     static unsigned char h[7];
     static dpos gp;
-    static unsigned del, ins, done, k;
+    static unsigned del, ins, k;
+    static dpos done;
     done = 0;
     while (done + 7u <= total && cbm_read(2, h, 7) == 7) {
         gp = h[0] | ((dpos)h[1] << 8) | ((dpos)h[2] << 16);
@@ -2923,18 +2991,19 @@ static void bck_replay(unsigned total)
 /* Apres le chargement d'un fichier : s'il y a un .bck qui lui correspond, on le rejoue. */
 static void bck_loaded_(void)
 {
-    static unsigned char hd[12];
-    static unsigned total;
+    static unsigned char hd[13];
+    static dpos total;
     unsigned char good = 0, bad = 0;
-    base_set();
+    base_set(0);
     if (!jr_ok) return;
+    if (bck_skip) return;                       /* RESTORE+RUN/STOP : le fichier seul */
     make_bck();
     strcpy(cmdname, bckname);
     strcat(cmdname, ",S,R");
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
-        if (cbm_read(2, hd, 12) == 12 && !memcmp(hd, "PBK1", 4)) {
-            total = hd[10] | (hd[11] << 8);
+        if (cbm_read(2, hd, 13) == 13 && !memcmp(hd, "PBK2", 4)) {
+            total = hd[10] | ((dpos)hd[11] << 8) | ((dpos)hd[12] << 16);
             if (base_len == (hd[4] | ((dpos)hd[5] << 8) | ((dpos)hd[6] << 16) | ((dpos)hd[7] << 24))
                 && base_sig == (hd[8] | (hd[9] << 8))) {
                 quiet = 1;
@@ -2960,9 +3029,221 @@ static void bck_loaded_(void)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
+/* ------------------------------------------------------------------ */
+/* Annuler / refaire (overlay 4). Annuler defait le dernier enregistrement du journal : les octets
+   inseres sont supprimes, les octets supprimes (banque R) reviennent ; une frappe = une lettre par pas.
+   Le journal et la banque R gardent ce qui a ete defait : refaire le rejoue (pile de 255 pas au plus
+   a la fin de la banque R, vidée par toute nouvelle modification). */
+#pragma code-name (push, "OVERLAY4")
+#pragma rodata-name (push, "OVERLAY4")
+static unsigned char uh[7];
+static dpos ug;
+static unsigned udel, uins;
+static unsigned ua;                             /* position (fenetre) apres la modification */
+static dpos ugp;                                /* idem, globale */
+
+static void u_hdr(dpos at)
+{
+    reu_move(1, uh, JR_BASE + at, 7);
+    ug = uh[0] | ((dpos)uh[1] << 8) | ((dpos)uh[2] << 16);
+    udel = uh[3] | (uh[4] << 8);
+    uins = uh[5] | (uh[6] << 8);
+}
+
+/* Le dernier enregistrement disparait : le precedent (cherche depuis le debut) devient le dernier. */
+static void u_pop(void)
+{
+    rl -= udel;
+    jr_len = jr_last;
+    if (jr_n) --jr_n;
+    if (jr_n) {
+        jr_last = 0;
+        reu_move(1, &jr_last, l_base + 3UL * (jr_n - 1), 3);
+        u_hdr(jr_last);
+        jr_lp = ug;
+        jr_ld = jr_len <= jb ? 0xFFFF : udel;
+        jr_li = uins;
+    }
+    if (jr_len < jb) jr_ok = 0;
+}
+
+/* La fenetre doit contenir [g, g + n). */
+static unsigned char u_win(dpos g, unsigned n)
+{
+    if (g < win_base || g + n > win_base + doclen) relocate(para_start(g > 400 ? g - 400 : 0));
+    ugp = g;
+    ua = (unsigned)(g - win_base);
+    return g >= win_base && g + n <= win_base + doclen;     /* un paragraphe trop long peut laisser g hors de la fenetre */
+}
+
+/* Supprime n octets a partir de la position globale g, fenetre apres fenetre (n peut depasser la fenetre). */
+static void u_del(dpos g, unsigned n)
+{
+    unsigned d;
+    while (n) {
+        if (g < win_base || g >= win_base + doclen) relocate(para_start(g > 400 ? g - 400 : 0));
+        ua = (unsigned)(g - win_base);
+        if (g < win_base || ua >= doclen) break;
+        d = doclen - ua;
+        if (d > n) d = n;
+        if (!replace(ua, ua + d, 0, 0, 0)) break;
+        n -= d;
+    }
+    u_win(g, 0);
+}
+
+/* Insere n octets du REU (adresse ra) a la position globale ugp, par morceaux. */
+static void u_put(dpos ra, unsigned n)
+{
+    unsigned k, m;
+    for (k = 0; k < n; k += m) {
+        m = n - k > 400 ? 400 : n - k;
+        reu_move(1, outbuf, ra + k, m);
+        if (MAXDOC - doclen < ROOM + 400 || ugp < win_base || ugp > win_base + doclen) u_win(ugp, 0);
+        if (!replace(ua, ua, outbuf, m, 0)) break;
+        ua += m;
+        ugp += m;
+    }
+}
+
+static void u_end(void)
+{
+    unsigned k;
+    quiet = jr_off = 0;
+    cursor = ua;
+    anchor = NOSEL;
+    dirty = 1;
+    layout_all();
+    k = line_of(cursor);
+    if (k < top || k >= top + VISIBLE) top = k > 4 ? k - 4 : 0;
+    style = style_before(cursor);
+    draw_text_area();
+}
+
+static void u_none(void)
+{
+#ifdef LANG_EN
+    message(S_UNDO, "Nothing to undo.", 0, 0);
+#else
+    message(S_UNDO, "Rien " C_AGRAVE " annuler.", 0, 0);
+#endif
+}
+
+static void u_far(void)
+{
+    quiet = jr_off = 0;
+    layout_all();
+    draw_text_area();
+#ifdef LANG_EN
+    message(S_UNDO, "Too far from the window.", 0, 0);
+#else
+    message(S_UNDO, "Hors de la fen" C_ECIRC "tre.", 0, 0);
+#endif
+}
+
+static void undo_(void)
+{
+    static unsigned char part, e;
+    static unsigned k;
+    for (;;) {
+        if (!jr_n) { u_none(); return; }
+        u_hdr(jr_last);
+        if (udel || uins) break;
+        u_pop();                                /* enregistrement vide (frappe effacee) : on passe */
+    }
+    quiet = jr_off = 1;
+    part = 0;
+    if (!udel && uins > 1) {                    /* frappe : une lettre par pas (avec son marqueur de style) */
+        if (!u_win(ug + uins - 2, 2)) { u_far(); return; }   /* les deux derniers octets de la frappe */
+        k = IS_MARK(text[ua]) ? 2 : 1;
+        if (k < uins) part = (unsigned char)k;
+    }
+    if (part) {
+        if (replace(ua + 2 - part, ua + 2, 0, 0, 0)) {
+            jr_lp = ug; jr_ld = 0; jr_li = uins - part;
+            jr_len -= part;
+            jr_hdr();
+            if (jr_len < jb) jr_ok = 0;
+        }
+        ua += 2 - part;
+    } else {
+        if (!u_win(ug, 0)) { u_far(); return; }
+        u_del(ug, uins);
+        u_put(R_BASE + rl - udel, udel);
+        u_pop();
+    }
+    if (redo_n >= d_max) redo_n = 0;
+    e = part;
+    reu_move(0, &e, d_base + redo_n, 1);
+    ++redo_n;
+    u_end();
+}
+
+static void redo_(void)
+{
+    static unsigned char e;
+    static unsigned k;
+    static dpos g0;
+    if (!redo_n) {
+#ifdef LANG_EN
+        message(S_REDO, "Nothing to redo.", 0, 0);
+#else
+        message(S_REDO, "Rien " C_AGRAVE " refaire.", 0, 0);
+#endif
+        return;
+    }
+    reu_move(1, &e, d_base + redo_n - 1, 1);
+    quiet = jr_off = 1;
+    if (e) {                                    /* une lettre de plus dans l'enregistrement de frappe */
+        u_hdr(jr_last);
+        if (!u_win(ug + uins, 0)) { u_far(); return; }
+        u_put(JR_BASE + jr_len, e);
+        jr_lp = ug; jr_ld = 0; jr_li = uins + e;
+        jr_len += e;
+        jr_hdr();
+    } else {                                    /* l'enregistrement defait revient */
+        u_hdr(jr_len);
+        g0 = ug;
+        k = uins;
+        if (!u_win(g0, 0)) { u_far(); return; }
+        u_del(g0, udel);
+        u_put(JR_BASE + jr_len + 7, k);
+        jr_last = jr_len;
+        ++jr_n;                                 /* son debut est encore dans la pile L */
+        jr_lp = g0; jr_ld = udel; jr_li = k;
+        jr_len += 7 + k;
+        rl += udel;
+    }
+    --redo_n;
+    u_end();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void undo(void) { ovl_load(4); undo_(); }
+static void redo(void) { ovl_load(4); redo_(); }
+
 static void quick_save(void) { ovl_load(3); quick_save_(); }
 static void bck_saved(void) { ovl_load(3); bck_saved_(); }
 static void bck_loaded(void) { ovl_load(3); bck_loaded_(); }
+/* RESTORE : annuler ; avec Shift : refaire ; avec RUN/STOP : le fichier revient du disque, sans le .bck
+   (le .bck reste sur le disque) ; Shift + RUN/STOP : le fichier et son .bck rejoue. */
+static void reload_doc(unsigned char with_bck)
+{
+    if (!filename[0] || !jr_ok) return;
+    if (dirty && !message(with_bck ? S_RELOADB : S_RELOAD, S_RELOAD1, S_LOSE, 1)) return;
+    op_ok = 0;
+    if (file_is_rtf()) { if (reu_on) rtf_open(); } else load_named();
+    if (op_ok) { bck_skip = !with_bck; bck_loaded(); bck_skip = 0; }
+    redraw_all();
+}
+
+static void restore_key(void)
+{
+    unsigned char sh = PEEK(0x028D) & 1;
+    if (PEEK(0x91) == 0x7F) reload_doc(sh);     /* RUN/STOP est tenue */
+    else handle_key(sh ? 0x19 : 0x1A);
+}
+
 /* F1 : sauvegarde rapide, ou enregistrement complet quand il n'y a pas encore de fichier de base. */
 static void f1_save(void)
 {
@@ -3047,6 +3328,10 @@ static void do_menu(unsigned char m, unsigned char item)
         if (item == 3) set_selection(0, doclen);
         if (item == 4) find_dialog();
         if (item == 5) find_next();
+#ifdef REU
+        if (item == 6) { undo(); cursor_moved(); }
+        if (item == 7) { redo(); cursor_moved(); }
+#endif
         break;
     case 2:
         apply_style(item ? (unsigned char)(1 << (item - 1)) : 0);
@@ -3222,6 +3507,9 @@ static unsigned char translate(unsigned char k)
     if (k == 0x5C) return 161;
     if (k == 0xDC) return '_';              /* C= + - : tiret bas */
     if (k == 0x5E) return '^';
+#ifdef HUN
+    if (k == 0x5F) return 181;              /* C= + <- : fleche gauche du C64 */
+#endif
     if (k == 0xA0) return ' ';
 #ifndef KBD_HU
     for (i = 0; i < sizeof cbm_keys; ++i) if (k == cbm_keys[i]) return cbm_accent[i];
@@ -3341,6 +3629,10 @@ static void handle_key(unsigned char k)
         led_theme(theme_no);                            /* et les leds du C64U */
 #endif
         return;
+#ifdef REU
+    case 0x1A: undo(); break;
+    case 0x19: redo(); break;                           /* CTRL+Z, RESTORE : annuler */
+#endif
     case 0x12: sound_on ^= 1; key_click(); return;      /* CTRL+9 : clic de touche oui / non */
 #ifdef REUTEST
     case 0x8D: print_run(1); return;
@@ -3533,7 +3825,7 @@ void main(void)
     reu_on = reu_detect();
     if (reu_on) {
         reu_probe_size();
-        if (suf_end < 0x30000UL) reu_on = 0;        /* il faut au moins 256 Ko */
+        if (suf_end < 0x20000UL) reu_on = 0;        /* il faut au moins 256 Ko */
     }
 #endif
     new_doc();
@@ -3573,6 +3865,7 @@ void main(void)
     dbg_state();
 #endif
     redraw_all();
+    nmi_off();                                          /* RESTORE ne doit plus relancer le BASIC */
 #ifdef REU
 #ifdef HUN
     hun_on = 1;
@@ -3588,6 +3881,9 @@ void main(void)
     *(unsigned *)0x02AD = (unsigned)&doclen;
     for (;;) {
         poll_mouse();
+#ifdef REU
+        if (nmi_hit) { nmi_hit = 0; restore_key(); }
+#endif
         if (wheel) {
             for (; wheel_n; --wheel_n) handle_key(wheel == 4 ? 0x91 : 0x11);
             wheel = 0;

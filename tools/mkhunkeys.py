@@ -38,9 +38,17 @@ P[POUND], S[POUND] = 0x09, 0x2D
 # a 0x7F egy leutesre sok karaktert torolne, a 0x93 pedig nem ismetlodne
 S[HOME] = 0x94
 S[0] = 0xFB                 # Shift + INST/DEL : insert / overwrite
-# C= : symboles deplaces (C= + - reste le tiret bas)
+# C= : symboles deplaces (le tiret bas : C= + Shift + -)
 C[COLON], C[SEMI], C[STAR], C[AT] = 0x3A, 0x3B, 0x2A, 0x40
-C[D3], C[D4], C[D6] = 0x23, 0x24, 0x26
+# C= : a C64 billentyuk eredeti jelei (a szamoknal a rajtuk levo Shift-jel), hogy minden elerheto legyen
+for k, ch in zip((D1, D2, D3, D4, D5, D6, D7, D8, D9), b"!\"#$%&'()"): C[k] = ch
+C[K0], C[PLUS], C[MINUS], C[EQUAL] = 0x30, 0x2B, 0x2D, 0x3D
+C[UPARROW], C[POUND] = 0x5E, 0x5C
+# Shift + C= : a KERNAL nem kulonbozteti meg, ezert sajat tabla; csak C= + Shift + - ad alahuzast (0xDC)
+CS = bytearray([0xFF] * 65)
+CS[MINUS] = 0xDC
+CS[COLON], CS[SEMI] = 0x5B, 0x5D      # C= + Shift + e acute / a acute : [ ]
+C[LEFTARROW] = 0x5F                  # C= + <- : la fleche gauche du C64
 C[SPACE] = 0xFA             # change de clavier
 # CTRL + fleche gauche = themes (0x06, comme dans le KERNAL) ; la touche "0" (o umlaut) n'a pas de CTRL
 K[K0] = 0xFF
@@ -59,14 +67,21 @@ out = """; GENERE par tools/mkhunkeys.py : ne pas modifier a la main.
         .setcpu "6502"
         .export _hun_set
         .rodata
-""" + rows("hun_plain", P) + rows("hun_shift", S) + rows("hun_cbm", C) + rows("hun_ctrl", K) + rows("c64_shift", S64) + """hun_ptab:
+""" + rows("hun_plain", P) + rows("hun_shift", S) + rows("hun_cbm", C) + rows("hun_ctrl", K) + rows("hun_cs", CS) + rows("c64_shift", S64) + """hun_ptab:
         .word hun_plain, hun_shift, hun_cbm, hun_ctrl
 
         .code
 ; Meme choix de table que le KERNAL ($EB48), puis retour a sa routine de decodage ($EAE0).
 hun_decode:
         lda $028D
-        asl
+        cmp #3                  ; Shift + C=
+        bne @n
+        lda #<hun_cs
+        sta $F5
+        lda #>hun_cs
+        sta $F6
+        jmp $EAE0
+@n:     asl
         cmp #8
         bcc @s
         lda #6

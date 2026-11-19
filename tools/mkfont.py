@@ -6,8 +6,8 @@ Codes internes : ASCII 32-126, puis les lettres accentuees de CHARSET a partir d
 """
 import sys
 
-ACCENTS = "àâäçéèêëîïôöùûüÀÂÇÉÈÊËÎÏÔÙÛÜœŒ«»°€æøåÆØÅáÁíÍóÓúÚőŐűŰÖ"
-# 128-167 : francais et danois (æøå : 2.1) ; 168-179 : hongrois ; 180 : Ö.
+ACCENTS = "àâäçéèêëîïôöùûüÀÂÇÉÈÊËÎÏÔÙÛÜœŒ«»°€æøåÆØÅáÁíÍóÓúÚőŐűŰÖ←"
+# 128-167 : francais et danois (æøå : 2.1) ; 168-179 : hongrois ; 180 : Ö ; 181 : ← (C64 nyíl).
 SPACE_WIDTH = 4
 glyphs = {}
 for line in open(sys.argv[1]):

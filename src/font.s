@@ -1,7 +1,7 @@
 ; Genere par tools/mkfont.py depuis unscii-8 (domaine public).
 	.export _font_width, _font_bits, FONT_FIRST, FONT_COUNT
 FONT_FIRST = 32
-FONT_COUNT = 149
+FONT_COUNT = 150
 	.rodata
 _font_width:
 	.byte 4,3,7,8,7,8,8,4,5,5,9,7,4,7,3,9
@@ -13,7 +13,7 @@ _font_width:
 	.byte 7,7,7,6,7,7,7,7,6,7,7,7,7,7,7,7
 	.byte 7,7,8,8,8,8,7,7,8,8,8,8,8,8,9,9
 	.byte 7,8,9,8,8,9,7,7,7,7,6,7,7,8,7,8
-	.byte 8,8,8,8,8
+	.byte 8,8,8,8,8,8
 _font_bits:			; 8 octets par caractere, aligne a gauche
 	.byte $00,$00,$00,$00,$00,$00,$00,$00	;  
 	.byte $C0,$C0,$C0,$C0,$C0,$00,$C0,$00	; !
@@ -164,3 +164,4 @@ _font_bits:			; 8 octets par caractere, aligne a gauche
 	.byte $66,$CC,$00,$66,$66,$66,$3E,$00	; ű
 	.byte $66,$CC,$00,$C6,$C6,$C6,$7C,$00	; Ű
 	.byte $6C,$00,$7C,$C6,$C6,$C6,$7C,$00	; Ö
+	.byte $00,$20,$60,$FE,$FE,$60,$20,$00	; ←

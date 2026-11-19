@@ -28,6 +28,8 @@ This fork adds a REU edition (Magic Desk cartridge, `build/plume-XX-2.2e.crt`) a
 - **Disk-full dialog**: offers to delete a file or swap the disk, so a save cannot silently fail.
 - **Double click** selects a word, **triple click** a sentence.
 - **Hungarian (HUN) keyboard layout** alongside the C64 layout: positional layout via KERNAL tables, QWERTY (Y and Z as printed), accents, `,` `.` with Shift giving `<` `>`, `?` on Shift+slash, underscore on C=+minus; toggle with C=+Space or the menu, with a status-line indicator; **Tab**; **Home/End** (CLR/HOME = line start, or line end if already at the start); **forward delete** (Shift+CLR/HOME) with key repeat in both layouts.
+- **Undo / Redo** (CTRL+Z / CTRL+Y, RESTORE / Shift+RESTORE, Edit menu); RUN/STOP+RESTORE reloads the file without its `.bck`, Shift+RUN/STOP+RESTORE reloads it with the `.bck`; RUN/STOP closes every dialog: step-by-step, back to the start of the session and across saves; each typed letter is one step; restored `.bck` edits can be undone. Built on the quick-save journal plus a bank of deleted text in the REU. RUN/STOP+RESTORE no longer crashes to BASIC.
+- **C= layer in the HUN layout**: C=+1…9 give the C64 key-top symbols, C=+ü/ó/ű give + - =, C=+ö/↑/£ give 0 ^ £, C=+← gives the C64 arrow (new glyph), C=+Shift+é/á give [ ], underscore moved to C=+Shift+-.
 - **Insert/overwrite mode** (Shift+INST/DEL) with an I/O indicator in the status line.
 - English and French README sections for all of the above.
 

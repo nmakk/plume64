@@ -26,12 +26,12 @@ hun_shift:
 hun_cbm:
         .byte $94, $8D, $9D, $8C, $89, $8A, $8B, $91
         .byte $23, $B3, $B0, $24, $AD, $AE, $B1, $01
-        .byte $98, $B2, $AC, $26, $BC, $BB, $A3, $BD
-        .byte $9A, $B7, $A5, $9B, $BF, $B4, $B8, $BE
+        .byte $25, $B2, $AC, $26, $BC, $BB, $A3, $BD
+        .byte $27, $B7, $A5, $28, $BF, $B4, $B8, $BE
         .byte $29, $A2, $B5, $30, $A7, $A1, $B9, $AA
-        .byte $A6, $AF, $B6, $DC, $3E, $3A, $40, $3C
-        .byte $A8, $2A, $3B, $93, $01, $3D, $DE, $3F
-        .byte $81, $5F, $04, $95, $FA, $02, $AB, $83
+        .byte $2B, $AF, $B6, $2D, $3E, $3A, $40, $3C
+        .byte $5C, $2A, $3B, $93, $01, $3D, $5E, $3F
+        .byte $21, $5F, $04, $22, $FA, $02, $AB, $83
         .byte $FF
 hun_ctrl:
         .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
@@ -42,6 +42,16 @@ hun_ctrl:
         .byte $FF, $10, $0C, $FF, $FF, $1B, $00, $FF
         .byte $FF, $FF, $1D, $FF, $FF, $1F, $1E, $FF
         .byte $90, $06, $FF, $05, $FF, $FF, $11, $FF
+        .byte $FF
+hun_cs:
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $DC, $FF, $5B, $FF, $FF
+        .byte $FF, $FF, $5D, $FF, $FF, $FF, $FF, $FF
+        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
         .byte $FF
 c64_shift:
         .byte $FB, $8D, $9D, $8C, $89, $8A, $8B, $91
@@ -60,7 +70,14 @@ hun_ptab:
 ; Meme choix de table que le KERNAL ($EB48), puis retour a sa routine de decodage ($EAE0).
 hun_decode:
         lda $028D
-        asl
+        cmp #3                  ; Shift + C=
+        bne @n
+        lda #<hun_cs
+        sta $F5
+        lda #>hun_cs
+        sta $F6
+        jmp $EAE0
+@n:     asl
         cmp #8
         bcc @s
         lda #6

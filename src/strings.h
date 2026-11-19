@@ -68,6 +68,11 @@
 #define S_DELQ       "Delete this file?"
 #define S_RESTORED   "Quick save restored."
 #define S_BCKBAD     "Quick save does not match file."
+#define S_UNDO       "Undo"
+#define S_REDO       "Redo"
+#define S_RELOAD     "Reload file"
+#define S_RELOADB    "Restore from .bck"
+#define S_RELOAD1    "Back to the file on disk."
 #ifdef REU
 #define S_VER        "2.2e"                  /* enhanced : RTF, gorgo, ledek */
 #else
@@ -141,6 +146,11 @@
 #define S_DELQ       "Effacer ce fichier ?"
 #define S_RESTORED   "Sauvegarde rapide restaur" C_EAIGU "e."
 #define S_BCKBAD     "Sauvegarde rapide ignor" C_EAIGU "e."
+#define S_UNDO       "Annuler"
+#define S_REDO       "Refaire"
+#define S_RELOAD     "Recharger le fichier"
+#define S_RELOADB    "Restaurer le .bck"
+#define S_RELOAD1    "Retour au fichier du disque."
 #define S_ABOUT1     "Plume 2.2, traitement de texte"
 #define S_ABOUT2     "pour Commodore 64."
 #define S_ABOUT3     "2026 par LABBEJ27."
