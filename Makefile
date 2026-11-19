@@ -33,9 +33,9 @@ build/plume-hu.prg: $(SRC) src/strings.h src/charmap.h
 # Magic Desk (la RAM d'E/S2 de l'EasyFlash masque les registres du REU).
 SRC_REU := $(SRC) src/reu.s
 define REU_RULE
-build/plume-$(1)-reu.prg: $$(SRC_REU) src/strings.h src/charmap.h
+build/plume-$(1)-reu.prg: $$(SRC_REU) src/strings.h src/charmap.h plume-reu.cfg
 	@mkdir -p build/$(1)-reu
-	cl65 -t c64 -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $$(SRC_REU)
+	cl65 -t c64 -C plume-reu.cfg -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu $$(SRC_REU)
 endef
 $(eval $(call REU_RULE,fr,))
 $(eval $(call REU_RULE,en,-DLANG_EN))
@@ -49,7 +49,8 @@ build/led.bin: src/led.s src/led.cfg
 build/plume-%-2.2e.crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
-	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME 2.2e $* REU" md build/led.bin
+	OV=""; for f in $<.?; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
+	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME 2.2e $* REU" md 62=build/led.bin $$OV
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*.o crt.s

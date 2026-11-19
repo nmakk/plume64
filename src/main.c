@@ -159,6 +159,7 @@ extern unsigned reu_c64, reu_len;
 extern unsigned char reu_addr[3];
 extern void reu_stash(void), reu_fetch(void);
 extern unsigned char reu_detect(void);
+void __fastcall__ ovl_load(unsigned char n);   /* charge l'overlay n (banque de la cartouche) */
 #define ROOM     800                    /* place libre minimale dans la fenetre */
 #define FILL     (MAXDOC - ROOM - 200)  /* remplissage apres un glissement */
 #define STEP     768                    /* taille mini du morceau qui quitte la fenetre */
@@ -1116,7 +1117,10 @@ static void show_disk_error(void)
    fichier "find" s'il existe deja. Blocs libres inconnus (pas de disque) : 0xFFFF. */
 #ifdef RTF
 static unsigned char rtf_doc;                   /* le document vient d'un fichier RTF / a ete enregistre en RTF */
-static unsigned char write_rtf(char *name);
+/* Le code RTF vit dans l'overlay 1 (une banque de la cartouche) : ces points d'entree le chargent d'abord. */
+static void rtf_open(void);
+static void rtf_save(void);
+static unsigned char rtf_write(char *name);
 #endif
 static unsigned blk_free, blk_old, fsize[MAXFILES];
 static unsigned char nfiles, fpage, fmore;
@@ -1278,7 +1282,7 @@ static void save_doc(void)
 #define HEADLEN 6
 #endif
 #ifdef RTF
-    if (rtf_doc && filename[0]) { write_rtf(filename); return; }   /* un document RTF s'enregistre en RTF */
+    if (rtf_doc && filename[0]) { rtf_write(filename); return; }   /* un document RTF s'enregistre en RTF */
 #endif
     if (!filename[0] && !ask_filename()) return;
     memcpy(head, "PLM2", 4);
@@ -1731,8 +1735,6 @@ static void load_named(void)
 }
 
 #ifdef RTF
-static void load_rtf(void);
-
 /* Le fichier "filename" est-il du RTF ? (sinon : format Plume) */
 static unsigned char file_is_rtf(void)
 {
@@ -1765,7 +1767,7 @@ static void open_doc(void)
         io_show();
 #ifdef RTF
         if (file_is_rtf()) {
-            if (reu_on) load_rtf(); else message(S_OPENRTF, S_NEEDREU, 0, 0);
+            if (reu_on) rtf_open(); else message(S_OPENRTF, S_NEEDREU, 0, 0);
         } else
 #endif
         load_named();
@@ -1843,6 +1845,10 @@ static void open_doc(void)
 #define rows ((unsigned char (*)[PRINT_CARDS])(text + PMAX))
 #else
 static unsigned char rows[14][PRINT_CARDS];
+#endif
+#ifdef REU
+#pragma code-name (push, "OVERLAY2")           /* toute l'impression est dans l'overlay 2 */
+#pragma rodata-name (push, "OVERLAY2")
 #endif
 static unsigned char pending;
 static unsigned char print_ok;
@@ -2067,6 +2073,13 @@ static void print_doc(unsigned char mode)
     dialog_close();
     if (!print_ok) message(S_MENU3, S_NOPRINTER, 0, 0);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }
+#else
+#define print_run print_doc
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Edition                                                             */
@@ -2330,6 +2343,9 @@ static void find_dialog(void)
 #ifdef RTF
 /* ------------------------------------------------------------------ */
 /* RTF : lecture en flux (nouveau document) et ecriture                */
+/* Tout ce bloc (code et constantes) est dans l'overlay 1. */
+#pragma code-name (push, "OVERLAY1")
+#pragma rodata-name (push, "OVERLAY1")
 
 /* Unicode des codes internes 128 a 180 (voir font_map.txt). */
 static const unsigned ucode[53] = {
@@ -2614,6 +2630,12 @@ static void save_rtf(void)
         draw_status();
     }
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+
+static void rtf_open(void) { ovl_load(1); load_rtf(); }
+static void rtf_save(void) { ovl_load(1); save_rtf(); }
+static unsigned char rtf_write(char *name) { ovl_load(1); return write_rtf(name); }
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -2680,7 +2702,7 @@ static void do_menu(unsigned char m, unsigned char item)
 #ifdef RTF
         if (item == 4) {
             if (!reu_on) message(S_SAVERTF, S_NEEDREU, 0, 0);
-            else save_rtf();
+            else rtf_save();
         }
 #endif
         break;
@@ -2696,7 +2718,7 @@ static void do_menu(unsigned char m, unsigned char item)
         apply_style(item ? (unsigned char)(1 << (item - 1)) : 0);
         break;
     case 3:
-        print_doc(item);
+        print_run(item);
         break;
     case 4:
         message(S_ABOUT, S_ABOUT1, S_ABOUT3, 0);
@@ -2916,11 +2938,11 @@ static void handle_key(unsigned char k)
         return;
     case 0x12: sound_on ^= 1; key_click(); return;      /* CTRL+9 : clic de touche oui / non */
 #ifdef REUTEST
-    case 0x8D: print_doc(1); return;
+    case 0x8D: print_run(1); return;
     case 0xA0: load_named(); redraw_all(); return;        /* le nom est dans filename (outil de test) */
 #ifdef RTF
-    case 0x9E: load_rtf(); redraw_all(); return;          /* le nom est dans filename (outil de test) */
-    case 0x9F: strcpy(rtfname, "\x4F\x55\x54"); write_rtf(rtfname); return;       /* OUT */
+    case 0x9E: rtf_open(); redraw_all(); return;          /* le nom est dans filename (outil de test) */
+    case 0x9F: strcpy(rtfname, "\x4F\x55\x54"); rtf_write(rtfname); return;       /* OUT */
 #endif
     case 0x8E: {                         /* impression de test vers une somme */
         pr_sink = 1; pr_sum = pr_cnt = 0; print_ok = 1;

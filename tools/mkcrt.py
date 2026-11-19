@@ -34,7 +34,11 @@ if not magic_desk:
     crt += chip(0, 0xA000, rom[BANK:])
 for n, i in enumerate(range(0, len(body), BANK)):
     crt += chip(1 + n, 0x8000, body[i:i + BANK])
-if magic_desk and len(sys.argv) > 6:             # recouvrement des leds (src/led.s), banque 62
-    crt += chip(62, 0x8000, open(sys.argv[6], "rb").read())
+# banques supplementaires (Magic Desk) : arguments "banque=fichier" (overlays 49..., leds en 62)
+extra = sorted((int(x.split("=")[0]), x.split("=", 1)[1]) for x in sys.argv[6:]) if magic_desk else []
+for b, f in extra:
+    data = open(f, "rb").read()
+    assert len(data) <= BANK, f"{f} : {len(data)} octets, plus qu'une banque"
+    crt += chip(b, 0x8000, data)
 open(out, "wb").write(crt)
 print(f"{out} : {1 + (len(body) + BANK - 1) // BANK} banques, programme de {len(body)} octets")

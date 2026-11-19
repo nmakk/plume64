@@ -142,3 +142,69 @@ ld:     pha
         jmp $0400
 ld_end:
         .reloc
+
+; Overlays du programme : l'overlay n (1...) est dans la banque OVL_BANK0 + n de la
+; cartouche, a l'adresse $8000 ; il est recopie dans la zone __OVERLAYSTART__ (taille
+; __OVERLAYSIZE__, voir plume-reu.cfg). Meme technique que le code des leds : un petit
+; chargeur dans le tampon cassette, car ROML ($8000) n'est visible qu'avec la cartouche active.
+; void __fastcall__ ovl_load(unsigned char n)
+        .import __OVERLAYSTART__, __OVERLAYSIZE__
+        .export _ovl_load
+OVL_BANK0 = 48
+OVL_TMP   = $03BA
+
+        .bss
+ovl_cur: .res 1                 ; overlay present (0 : aucun)
+        .code
+_ovl_load:
+        cmp ovl_cur
+        beq @ret
+        sta ovl_cur
+        clc
+        adc #OVL_BANK0
+        ldx #ovl_end - ovl - 1
+        pha                     ; banque
+@i:     lda ovl_img,x
+        sta $0334,x
+        dex
+        bpl @i
+        pla
+        jmp $0334
+@ret:   rts
+ovl_img:
+        .org $0334
+ovl:    sta OVL_TMP
+        php
+        sei
+        lda $01
+        pha
+        lda #$37
+        sta $01
+        lda OVL_TMP
+        sta $DE00
+        lda #$00
+        sta $FB
+        lda #$80
+        sta $FC
+        lda #<__OVERLAYSTART__
+        sta $FD
+        lda #>__OVERLAYSTART__
+        sta $FE
+        ldx #>__OVERLAYSIZE__
+        ldy #0
+@p:     lda ($FB),y
+        sta ($FD),y
+        iny
+        bne @p
+        inc $FC
+        inc $FE
+        dex
+        bne @p
+        lda #$80
+        sta $DE00
+        pla
+        sta $01
+        plp
+        rts
+ovl_end:
+        .reloc
