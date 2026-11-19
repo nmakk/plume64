@@ -76,3 +76,9 @@ A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude 
 - **Ledek a témához (CTRL+0, és indításkor az alap témához):** a Programmatic LED mód C64-oldali interfésze nem publikus (changelog, doksi, kézikönyv: nincs). Helyette az **UCI HTTP target ($06, 3.15 / C64U 1.2)** a gép saját REST API-ját hívja (`PUT /v1/configs/<kat>/<elem>?value=`), 127.0.0.1-gyel és a saját IP-vel is megy. A kód (`src/led.s`) a Magic Desk crt **62. bankjában** van; `led_theme()` (`src/reu.s`) egy kis betöltővel $0334-re másol, az $0400–$07FF-re másolja és ugrik. A betöltő nem lehet a $8000 felett (ROML elfedi a RAM-ot), és nem kerülhet a STARTUP szegmensbe ($080D = belépési pont). UCI nélkül (`$DF1D != $C9`) azonnal visszatér. Témák: 1 fehér/ki, 2 ki/zöld, 3 Royal Blue/Azure, 4 ki/Amber (ház/billentyűzet). Egy hívás kb. 1 s.
 - **Billentyűhang:** CTRL+9 kapcsolja (SID zaj, hu REU).
 - **Nem tesztelt:** nem-Ultimate gép, Ultimate-II+ és nem Starlight C64U (a LED/Mouse kategóriák ott hiányozhatnak; a hiba ártalmatlan).
+
+
+## Frissítés (2026-11-19): egységes Open
+
+- A File menü „Open…” sora a fájl első 5 bájtja alapján felismeri az RTF-et és a saját (PLM) formátumot; az „Open RTF…” sor megszűnt. F1 abban a formátumban ment, amelyben a fájl van; „Save as…” saját formátumban, „Save as RTF…” RTF-ben.
+- A nyomtatási puffer (`outbuf`) a $0540-es képernyő-RAM-ba költözött, a verem 0x180 (REU-buildek hely miatt). Recovery pont: tag `recovery-2.2e-pre-overlay`.

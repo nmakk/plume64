@@ -700,7 +700,7 @@ static void draw_status(void)
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
 static const char *const menu_items[NMENUS][7] = {
 #ifdef RTF
-    { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, S_OPENRTF, S_SAVERTF, 0 },
+    { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, S_SAVERTF, 0 },
 #else
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
@@ -711,7 +711,7 @@ static const char *const menu_items[NMENUS][7] = {
 };
 static const char *const menu_keys[NMENUS][7] = {
 #ifdef RTF
-    { "", "", "F1", "", "", "", 0 },
+    { "", "", "F1", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
@@ -1731,8 +1731,20 @@ static void load_named(void)
 }
 
 #ifdef RTF
-static unsigned char rtf_mode;
 static void load_rtf(void);
+
+/* Le fichier "filename" est-il du RTF ? (sinon : format Plume) */
+static unsigned char file_is_rtf(void)
+{
+    unsigned char r = 0;
+    strcpy(cmdname, filename);
+    strcat(cmdname, ",S,R");
+    if (cbm_open(2, 8, 2, cmdname) == 0) {
+        if (cbm_read(2, outbuf, 5) == 5 && !memcmp(outbuf, "{\\rtf", 5)) r = 1;
+        cbm_close(2);
+    }
+    return r;
+}
 #endif
 
 #ifdef REU
@@ -1752,7 +1764,9 @@ static void open_doc(void)
         strcpy(filename, names[sel]);
         io_show();
 #ifdef RTF
-        if (rtf_mode) load_rtf(); else
+        if (file_is_rtf()) {
+            if (reu_on) load_rtf(); else message(S_OPENRTF, S_NEEDREU, 0, 0);
+        } else
 #endif
         load_named();
     }
@@ -1799,9 +1813,6 @@ static void open_doc(void)
         io_hide();
         strcpy(filename, names[sel]);
         io_show();
-#ifdef RTF
-        if (rtf_mode) load_rtf(); else
-#endif
         load_named();
     }
     redraw_all();
@@ -2668,10 +2679,9 @@ static void do_menu(unsigned char m, unsigned char item)
         }
 #ifdef RTF
         if (item == 4) {
-            if (!reu_on) message(S_OPENRTF, S_NEEDREU, 0, 0);
-            else { rtf_mode = 1; open_doc(); rtf_mode = 0; }
+            if (!reu_on) message(S_SAVERTF, S_NEEDREU, 0, 0);
+            else save_rtf();
         }
-        if (item == 5) save_rtf();
 #endif
         break;
     case 1:
