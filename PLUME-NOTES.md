@@ -7,7 +7,7 @@
   - Sor végén / CR-nél a blokk 7 pont széles.
   - A kód a `src/gfx.s`-ben van: `_cur_place`, `_cur_sample`, `_blink_cursor`, `_cursor_off`. A C-oldali `place_cursor()` és `cursor_sample()` csak paramétereket tölt ki.
   - A `panel()` kikapcsolja a kurzort (menük, párbeszédablakok alatt).
-- **Színsémák, CTRL+0** (`$92`) léptet: `themes[4][5]` a `main.c`-ben (lap, sávok, margó, keret, nyíl); `_next_theme` / `_set_theme` a `gfx.s`-ben. A `COL_PAGE` / `COL_BAR` / `COL_MARGIN` most a `col[]` tömbből olvas.
+- **Színsémák, CTRL+← (a ← billentyű, HUN-ban a nulla)** (`$06`) léptet: `themes[4][5]` a `main.c`-ben (lap, sávok, margó, keret, nyíl); `_next_theme` / `_set_theme` a `gfx.s`-ben. A `COL_PAGE` / `COL_BAR` / `COL_MARGIN` most a `col[]` tömbből olvas.
 - A `cursor` és az `anchor` már nem static (a `gfx.s` olvassa őket).
 
 ## Memória
@@ -73,7 +73,7 @@ A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude 
 ## Frissítés (2026-11-18): Plume 2.2e — egérgörgő, ledek, billentyűhang
 - **Verzió:** a REU buildek „Plume 2.2e” (enhanced); a crt-k neve `build/plume-XX-2.2e.crt`. A non-REU maradt 2.2.
 - **Egérgörgő (C64U, Mouse + Wheel):** a firmware a kereket a port 1-en bal/jobb (0x04/0x08) impulzusként küldi, 0x1F zajjal; egy kattanás annyi impulzus, amennyi a *Mouse Wheel Sensitivity* (1–16, alap 8). A Plume indításkor 1-re állítja. Egy impulzus = 1 sor, gyors forgatásnál 2/4/8 (a kattanások közti idő alapján: 3/6/12 jiffy). Az impulzusok a billentyűmátrixban is látszanak: görgetés után `POKE(198,0)` + `joy_p1_time` (különben 1 MHz-en hamis betűk, É).
-- **Ledek a témához (CTRL+0, és indításkor az alap témához):** a Programmatic LED mód C64-oldali interfésze nem publikus (changelog, doksi, kézikönyv: nincs). Helyette az **UCI HTTP target ($06, 3.15 / C64U 1.2)** a gép saját REST API-ját hívja (`PUT /v1/configs/<kat>/<elem>?value=`), 127.0.0.1-gyel és a saját IP-vel is megy. A kód (`src/led.s`) a Magic Desk crt **62. bankjában** van; `led_theme()` (`src/reu.s`) egy kis betöltővel $0334-re másol, az $0400–$07FF-re másolja és ugrik. A betöltő nem lehet a $8000 felett (ROML elfedi a RAM-ot), és nem kerülhet a STARTUP szegmensbe ($080D = belépési pont). UCI nélkül (`$DF1D != $C9`) azonnal visszatér. Témák: 1 fehér/ki, 2 ki/zöld, 3 Royal Blue/Azure, 4 ki/Amber (ház/billentyűzet). Egy hívás kb. 1 s.
+- **Ledek a témához (CTRL+←, és indításkor az alap témához):** a Programmatic LED mód C64-oldali interfésze nem publikus (changelog, doksi, kézikönyv: nincs). Helyette az **UCI HTTP target ($06, 3.15 / C64U 1.2)** a gép saját REST API-ját hívja (`PUT /v1/configs/<kat>/<elem>?value=`), 127.0.0.1-gyel és a saját IP-vel is megy. A kód (`src/led.s`) a Magic Desk crt **62. bankjában** van; `led_theme()` (`src/reu.s`) egy kis betöltővel $0334-re másol, az $0400–$07FF-re másolja és ugrik. A betöltő nem lehet a $8000 felett (ROML elfedi a RAM-ot), és nem kerülhet a STARTUP szegmensbe ($080D = belépési pont). UCI nélkül (`$DF1D != $C9`) azonnal visszatér. Témák: 1 fehér/ki, 2 ki/zöld, 3 Royal Blue/Azure, 4 ki/Amber (ház/billentyűzet). Egy hívás kb. 1 s.
 - **Billentyűhang:** CTRL+9 kapcsolja (SID zaj, hu REU).
 - **Nem tesztelt:** nem-Ultimate gép, Ultimate-II+ és nem Starlight C64U (a LED/Mouse kategóriák ott hiányozhatnak; a hiba ártalmatlan).
 

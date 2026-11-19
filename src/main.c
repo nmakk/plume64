@@ -115,12 +115,13 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define COL_PAGE   col[0]
 #define COL_BAR    col[1]
 #define COL_MARGIN col[2]
-/* Jeux de couleurs, CTRL+0 passe au suivant : page, barres, marges, bord,
+/* Jeux de couleurs, CTRL+fleche gauche passe au suivant : page, barres, marges, bord,
    fleche. Le curseur prend l'encre (bloc) et le fond (lettre) de la page. */
 #if defined(KBD_HU) && defined(REU)
 #define HUN                             /* clavier HUN : disposition hongroise sur les touches du C64 (src/hunkey.s) */
 void __fastcall__ hun_set(unsigned char on);
 static unsigned char hun_on;
+static unsigned char overwrite;                 /* mode ecrasement (Shift + INST/DEL) */
 static void hun_toggle(void);
 #endif
 #define NTHEMES 4
@@ -699,6 +700,7 @@ static void draw_status(void)
     put_text(6, FOOT_ROW, buf, 0);
 #ifdef HUN
     put_text(150, FOOT_ROW, hun_on ? "HUN" : "C64", BOLD);
+    put_text(130, FOOT_ROW, overwrite ? "O" : "I", BOLD);
 #endif
     strcpy(buf, S_FREE " ");
 #ifdef REU
@@ -2267,15 +2269,18 @@ static void delete_selection(void)
 static void insert_char(unsigned char c)
 {
     unsigned char seq[3], n = 0, here;
-    unsigned p;
+    unsigned p, b;
     delete_selection();
-    p = cursor;
+    p = b = cursor;
+#ifdef HUN
+    if (overwrite && p < doclen && !IS_MARK(text[p]) && text[p] != CR) b = p + 1;   /* ecrase le caractere suivant */
+#endif
     here = style_before(p);
     if (style != here) seq[n++] = MARK(style);
     seq[n++] = c;
-    if (style != here && p < doclen && !IS_MARK(text[p])) seq[n++] = MARK(here);
+    if (style != here && b < doclen && !IS_MARK(text[b])) seq[n++] = MARK(here);
     cursor = p + (style != here ? 2 : 1);
-    if (!replace(p, p, seq, n, 0)) cursor = p;
+    if (!replace(p, b, seq, n, 0)) cursor = p;
 }
 
 static void delete_before(void)
@@ -3302,13 +3307,13 @@ static void handle_key(unsigned char k)
 #ifdef REU
     case 0x13: clear_selection(); home_end(); break;
     case 0x09: { unsigned char i; key_click(); for (i = 0; i < 4; ++i) insert_char(' '); return; }
-    case 0x7F:
-    case 0x93: key_click(); delete_after(); return;     /* Shift + CLR/HOME : suppression vers l'avant (HUN : 0x7F, C64 : 0x93) */
+    case 0x94: key_click(); delete_after(); return;     /* Shift + CLR/HOME ou Shift + INST/DEL : suppression vers l'avant (le KERNAL repete 0x94 comme 0x14) */
 #else
     case 0x13: clear_selection(); cursor = lstart[line_of(cursor)]; break;
 #endif
 #ifdef HUN
     case 0xFA: hun_toggle(); return;
+    case 0xFB: overwrite ^= 1; draw_status(); return;
 #endif
     case 3:    clear_selection(); return;
     case 0x85:
@@ -3325,7 +3330,7 @@ static void handle_key(unsigned char k)
     case 0x8A: paste(); return;
     case 0x8B: cut_selection(); return;
     case 0x8C: find_next(); return;
-    case 0x92: next_theme(); redraw_all();             /* CTRL+0 : couleurs */
+    case 0x06: next_theme(); redraw_all();             /* CTRL + fleche gauche (en HUN la touche du zero) : couleurs */
 #ifdef REU
         led_theme(theme_no);                            /* et les leds du C64U */
 #endif

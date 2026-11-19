@@ -34,13 +34,16 @@ S[D1], S[D3], S[D4], S[D6], S[D7] = 0x27, 0x2B, 0x21, 0x2F, 0x3D
 # livre : tabulation ; Shift : tiret
 P[POUND], S[POUND] = 0x09, 0x2D
 # CLR/HOME : debut / fin de ligne ; Shift : suppression vers l'avant
-# (marad 0x93 : a KERNAL nem ismétli ; a 0x7F ismétlődne, tehát egy leütésre több karaktert törölne)
+# 0x94 (mint a Shift+INST/DEL) : a KERNAL ugyanugy ismetli, mint a backspace-et (0x14) ;
+# a 0x7F egy leutesre sok karaktert torolne, a 0x93 pedig nem ismetlodne
+S[HOME] = 0x94
+S[0] = 0xFB                 # Shift + INST/DEL : insert / overwrite
 # C= : symboles deplaces (C= + - reste le tiret bas)
 C[COLON], C[SEMI], C[STAR], C[AT] = 0x3A, 0x3B, 0x2A, 0x40
 C[D3], C[D4], C[D6] = 0x23, 0x24, 0x26
 C[SPACE] = 0xFA             # change de clavier
-# CTRL : le zero (theme, CTRL+0) suit la fleche gauche
-K[LEFTARROW], K[K0] = 0x92, 0xFF
+# CTRL + fleche gauche = themes (0x06, comme dans le KERNAL) ; la touche "0" (o umlaut) n'a pas de CTRL
+K[K0] = 0xFF
 K[POUND] = 0xFF
 
 def rows(name, t):
@@ -48,12 +51,15 @@ def rows(name, t):
     for i in range(0, 65, 8):
         s += "        .byte " + ", ".join(f"${b:02X}" for b in t[i:i + 8]) + "\n"
     return s
+S64 = bytearray(SHIFT)       # C64 mod : a KERNAL tablaja, csak a Shift+CLR/HOME tér el
+S64[HOME] = 0x94
+S64[0] = 0xFB
 out = """; GENERE par tools/mkhunkeys.py : ne pas modifier a la main.
 ; Clavier HUN : tables de decodage du KERNAL (vecteur $028F), voir le generateur.
         .setcpu "6502"
         .export _hun_set
         .rodata
-""" + rows("hun_plain", P) + rows("hun_shift", S) + rows("hun_cbm", C) + rows("hun_ctrl", K) + """hun_ptab:
+""" + rows("hun_plain", P) + rows("hun_shift", S) + rows("hun_cbm", C) + rows("hun_ctrl", K) + rows("c64_shift", S64) + """hun_ptab:
         .word hun_plain, hun_shift, hun_cbm, hun_ctrl
 
         .code
@@ -71,6 +77,18 @@ hun_decode:
         sta $F6
         jmp $EAE0
 
+; C64 mod : a KERNAL sajat tablai, kiveve a Shift+CLR/HOME (ismetlodo elore torles).
+c64_decode:
+        lda $028D
+        cmp #1
+        bne @def
+        lda #<c64_shift
+        sta $F5
+        lda #>c64_shift
+        sta $F6
+        jmp $EAE0
+@def:   jmp $EB48
+
 ; void __fastcall__ hun_set(unsigned char on) : 1 = clavier HUN, 0 = clavier du KERNAL
 _hun_set:
         php
@@ -82,9 +100,9 @@ _hun_set:
         lda #>hun_decode
         sta $0290
         bne @done
-@off:   lda #$48
+@off:   lda #<c64_decode
         sta $028F
-        lda #$EB
+        lda #>c64_decode
         sta $0290
 @done:  plp
         rts
