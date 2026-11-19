@@ -15,19 +15,19 @@ src/font.s: fonts/unscii-8.hex tools/mkfont.py
 
 build/plume-fr.prg: $(SRC) src/strings.h src/charmap.h
 	@mkdir -p build/fr
-	cl65 -t c64 -O -Or -Cl -o $@ -m build/plume-fr.map --obj-path build/fr -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x200 $(SRC)
+	cl65 -t c64 -O -Or -Cl -o $@ -m build/plume-fr.map --obj-path build/fr -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $(SRC)
 
 build/plume-en.prg: $(SRC) src/strings.h src/charmap.h
 	@mkdir -p build/en
-	cl65 -t c64 -O -Or -Cl -DLANG_EN -o $@ -m build/plume-en.map --obj-path build/en -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x200 $(SRC)
+	cl65 -t c64 -O -Or -Cl -DLANG_EN -o $@ -m build/plume-en.map --obj-path build/en -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $(SRC)
 
 build/plume-dk.prg: $(SRC) src/strings.h src/charmap.h
 	@mkdir -p build/dk
-	cl65 -t c64 -O -Or -Cl -DLANG_EN -DKBD_DK -o $@ -m build/plume-dk.map --obj-path build/dk -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x200 $(SRC)
+	cl65 -t c64 -O -Or -Cl -DLANG_EN -DKBD_DK -o $@ -m build/plume-dk.map --obj-path build/dk -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $(SRC)
 
 build/plume-hu.prg: $(SRC) src/strings.h src/charmap.h
 	@mkdir -p build/hu
-	cl65 -t c64 -O -Or -Cl -DLANG_EN -DKBD_HU -o $@ -m build/plume-hu.map --obj-path build/hu -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x200 $(SRC)
+	cl65 -t c64 -O -Or -Cl -DLANG_EN -DKBD_HU -o $@ -m build/plume-hu.map --obj-path build/hu -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $(SRC)
 
 # Edition REU : fenetre de 16 Ko en RAM, document entier dans le REU. Cartouche
 # Magic Desk (la RAM d'E/S2 de l'EasyFlash masque les registres du REU).
@@ -35,7 +35,7 @@ SRC_REU := $(SRC) src/reu.s
 define REU_RULE
 build/plume-$(1)-reu.prg: $$(SRC_REU) src/strings.h src/charmap.h
 	@mkdir -p build/$(1)-reu
-	cl65 -t c64 -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x200 $$(SRC_REU)
+	cl65 -t c64 -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu -Wl -D,__HIMEM__=0xC000 -Wl -D,__STACKSIZE__=0x180 $$(SRC_REU)
 endef
 $(eval $(call REU_RULE,fr,))
 $(eval $(call REU_RULE,en,-DLANG_EN))

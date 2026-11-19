@@ -182,12 +182,17 @@ static void io_show(void) { POKE(0x01, 0x36); asm("cli"); }
 
 /* Tampon d'une rangee ($0400, ecran texte inutilise) : les lignes y sont dessinees puis copiees
    d'un coup a l'ecran, pour qu'elles ne clignotent pas quand on tape. draw_off != 0 : dessin dans le tampon. */
+#ifdef REU
 #define LINEBUF   0x0400u
 static unsigned draw_off;
+#endif
 
 static unsigned put_text(unsigned x, unsigned char row, const char *s, unsigned char st)
 {
-    gbase = draw_off ? draw_off : ROWBASE(row);
+    gbase = ROWBASE(row);
+#ifdef REU
+    if (draw_off) gbase = draw_off;
+#endif
     gstyle = st;
     while (*s) {
         gch = (unsigned char)*s++;
@@ -228,10 +233,13 @@ static void vline(unsigned char row, unsigned x, unsigned char mask)
     for (y = 0; y < 8; ++y) bm_or(ROWBASE(row) + x + y, mask);
 }
 
-static void xor_span_at(unsigned base, unsigned x0, unsigned x1)
+static void xor_span(unsigned char row, unsigned x0, unsigned x1)
 {
-    unsigned card;
+    unsigned card, base = ROWBASE(row);
     unsigned char a, b, mask;
+#ifdef REU
+    if (draw_off) base = draw_off;
+#endif
     for (card = x0 & 0xFFF8u; card < x1; card += 8) {
         a = card < x0 ? (unsigned char)(x0 - card) : 0;
         b = card + 8 > x1 ? (unsigned char)(x1 - card) : 8;
@@ -240,10 +248,6 @@ static void xor_span_at(unsigned base, unsigned x0, unsigned x1)
     }
 }
 
-static void xor_span(unsigned char row, unsigned x0, unsigned x1)
-{
-    xor_span_at(ROWBASE(row), x0, x1);
-}
 
 static void petscii_to_text(char *dst, const char *src)
 {
@@ -429,11 +433,21 @@ static void draw_line(unsigned i)
     unsigned p, end, x = TEXT_X0, lo = sel_lo(), hi = sel_hi(), sx = 0, ex = 0;
     if (i < top || i >= top + VISIBLE) return;
     row = (unsigned char)(TEXT_ROW0 + i - top);
-    bm_fill(LINEBUF, 320, 0);                   /* marges comprises : efface les ombres des menus */
+#ifdef REU
+    draw_off = LINEBUF;
+    bm_fill(LINEBUF, 320, 0);
+    gbase = LINEBUF;
+#else
+    clear_cells(row, 0, 320);                   /* marges comprises : efface les ombres des menus */
+    gbase = ROWBASE(row);
+#endif
+#ifdef REU
     if (i >= nlines) goto show;
+#else
+    if (i >= nlines) return;
+#endif
     end = lstart[i + 1];
     st = lstyle[i];
-    gbase = LINEBUF;
     for (p = lstart[i]; p < end; ++p) {
         if (p == lo) sx = x;
         if (p == hi) ex = x;
@@ -449,13 +463,12 @@ static void draw_line(unsigned i)
     if (lo < hi && lo < end && hi > lstart[i]) {
         if (lo < lstart[i]) sx = TEXT_X0;
         if (hi >= end || (p < hi && ex == 0)) ex = x;
-        if (ex > sx) xor_span_at(LINEBUF, sx, ex);
+        if (ex > sx) xor_span(row, sx, ex);
     }
-show:
 #ifdef REU
+show:
+    draw_off = 0;
     bm_move(ROWBASE(row), LINEBUF, 312);        /* la colonne 39 est l'ascenseur */
-#else
-    bm_move(ROWBASE(row), LINEBUF, 320);
 #endif
 }
 
@@ -468,6 +481,7 @@ static void draw_lines(unsigned from, unsigned to)
 
 #ifdef REU
 static void draw_sbar(void);
+static void sbar_update(void);
 #endif
 
 static void draw_text_area(void)
@@ -493,22 +507,40 @@ static unsigned cursor_x(void)
    d'insertion. Sprite 1 (blanc) : points du caractere relus dans le bitmap ;
    sprite 2 (noir, bloc 47 en $CBC0, libre apres lstyle) : fond plein, dessous. */
 #define CUR_BLOCK  ((unsigned char *)0xCBC0)
+#ifdef REU
+/* Decale le texte d'une rangee, rangee par rangee : la colonne 39 (ascenseur) ne bouge pas. */
+static void scroll_text(unsigned a, int step)
+{
+    unsigned char r;
+    unsigned b;
+    for (r = VISIBLE - 1; r; --r) { b = a + step; bm_move(a, b, 312); a = b; }
+}
+#endif
 static void place_cursor(void)
 {
     unsigned i = line_of(cursor);
+
     if (i + 1 == top) {                         /* une ligne plus haut : decale l'image */
+#ifdef REU
+        scroll_text(ROWC(TEXT_ROW0 + VISIBLE - 1), -320);
+#else
         bm_move(ROWC(TEXT_ROW0 + 1), ROWC(TEXT_ROW0), (VISIBLE - 1) * 320u);
+#endif
         top = i;
         draw_line(i);
 #ifdef REU
-        draw_sbar();                            /* le defilement a deplace aussi l'ascenseur */
+        sbar_update();
 #endif
     } else if (i == top + VISIBLE) {            /* une ligne plus bas */
+#ifdef REU
+        scroll_text(ROWC(TEXT_ROW0), 320);
+#else
         bm_move(ROWC(TEXT_ROW0), ROWC(TEXT_ROW0 + 1), (VISIBLE - 1) * 320u);
+#endif
         ++top;
         draw_line(i);
 #ifdef REU
-        draw_sbar();
+        sbar_update();
 #endif
     } else if (i < top) { top = i; draw_text_area(); }
     else if (i >= top + VISIBLE) { top = i - VISIBLE + 1; draw_text_area(); }
@@ -612,12 +644,23 @@ static void draw_sbar(void)
 }
 #endif
 
+#ifdef REU
+static void sbar_update(void)
+{
+    if (sbar_ty() != shown_ty) draw_sbar();
+}
+#endif
+
 static void draw_status(void)
 {
     char *buf = statusbuf, *b;
     if (dirty != shown_dirty || style != shown_style) draw_title();
+#ifdef REU
     draw_off = LINEBUF;
     bm_fill(LINEBUF, 320, 0);
+#else
+    clear_cells(FOOT_ROW, 0, 320);
+#endif
     b = buf;
     strcpy(b, S_LINE " ");
 #ifdef REU
@@ -639,10 +682,10 @@ static void draw_status(void)
     utoa_simple(buf + strlen(buf), MAXDOC - doclen);
 #endif
     put_text(314 - text_width(buf, 0), FOOT_ROW, buf, 0);
+#ifdef REU
     draw_off = 0;
     bm_move(ROWBASE(FOOT_ROW), LINEBUF, 320);
-#ifdef REU
-    if (sbar_ty() != shown_ty) draw_sbar();
+    sbar_update();
 #endif
 }
 
