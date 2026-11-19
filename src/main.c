@@ -117,6 +117,12 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define COL_MARGIN col[2]
 /* Jeux de couleurs, CTRL+0 passe au suivant : page, barres, marges, bord,
    fleche. Le curseur prend l'encre (bloc) et le fond (lettre) de la page. */
+#if defined(KBD_HU) && defined(REU)
+#define HUN                             /* clavier HUN : disposition hongroise sur les touches du C64 (src/hunkey.s) */
+void __fastcall__ hun_set(unsigned char on);
+static unsigned char hun_on;
+static void hun_toggle(void);
+#endif
 #define NTHEMES 4
 const unsigned char themes[NTHEMES][5] = {
     { 0x01, 0x0F, 0x0C, COLOR_GRAY1, COLOR_BLACK },     /* noir sur blanc */
@@ -691,6 +697,9 @@ static void draw_status(void)
     utoa_simple(b, nlines);
 #endif
     put_text(6, FOOT_ROW, buf, 0);
+#ifdef HUN
+    put_text(150, FOOT_ROW, hun_on ? "HUN" : "C64", BOLD);
+#endif
     strcpy(buf, S_FREE " ");
 #ifdef REU
     ultoa_simple(buf + strlen(buf), suf_end - doclen - win_base - suf_len);
@@ -719,7 +728,11 @@ static const char *const menu_items[NMENUS][7] = {
     { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
     { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, 0 },
     { S_PGRAPH, S_PTEXT, S_PWIDE, 0 },
+#ifdef HUN
+    { S_ABOUT, S_KBD, 0 },
+#else
     { S_ABOUT, 0 },
+#endif
 };
 static const char *const menu_keys[NMENUS][7] = {
 #ifdef RTF
@@ -730,7 +743,11 @@ static const char *const menu_keys[NMENUS][7] = {
     { "F6", "F2", "F4", "", "", "F8", 0 },
     { "", "F3", "F5", "F7", 0 },
     { "", "", "", 0 },
+#ifdef HUN
+    { "", "C=Spc", 0 },
+#else
     { "", 0 },
+#endif
 };
 static unsigned menu_x[NMENUS + 1];
 
@@ -900,10 +917,15 @@ static unsigned char read_key(void)
     /* Tant que C= est enfoncee, on jette ce que le KERNAL a pu mettre dans
        son tampon : sa couche C= ne fait pas Shift, et notre lecture de la
        matrice pendant sa scrutation peut lui donner des touches fantomes. */
-    k = hu_key();
-    if (k || hu_last != 0xFF) {         /* C= tenue, ou touche lue */
-        POKE(198, 0);
-        return k;
+#ifdef HUN
+    if (!hun_on)
+#endif
+    {
+        k = hu_key();
+        if (k || hu_last != 0xFF) {     /* C= tenue, ou touche lue */
+            POKE(198, 0);
+            return k;
+        }
     }
 #endif
     return cbm_k_getin();
@@ -2316,7 +2338,15 @@ static void paste(void)
 /* Style : sur la selection s'il y en a une, sinon pour la frappe. bit = 0 : normal.
    La selection et la suite du texte sont deplacees en haut du tampon, puis la
    selection est reecrite en un seul passage avec ses nouveaux marqueurs. */
-static void apply_style(unsigned char bit)
+#ifdef REU
+/* apply_style est dans l'overlay 3 (il libere de la RAM) ; la version residente le charge d'abord. */
+#pragma code-name (push, "OVERLAY3")
+#pragma rodata-name (push, "OVERLAY3")
+#define APPLY_STYLE apply_style_ov
+#else
+#define APPLY_STYLE apply_style
+#endif
+static void APPLY_STYLE(unsigned char bit)
 {
     unsigned a, b, w, sel_end, need = 0;
     unsigned char all, every = 1, old_st, start_st, emitted, want, c, k;
@@ -2374,6 +2404,11 @@ static void apply_style(unsigned char bit)
     if (!all && relayout_last < line_of(sel_end)) relayout_last = line_of(sel_end);
     refresh_after(first, all);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void apply_style(unsigned char bit) { ovl_load(3); apply_style_ov(bit); }
+#endif
 
 static unsigned char lower(unsigned char c)
 {
@@ -2967,6 +3002,9 @@ static unsigned char run_menu(unsigned char m)
     draw_menubar();
     draw_status();
     draw_lines(top, top + n + 2);
+#ifdef REU
+    draw_sbar();                                /* le menu a pu couvrir l'ascenseur */
+#endif
     place_cursor();
     return choice;
 }
@@ -3006,6 +3044,9 @@ static void do_menu(unsigned char m, unsigned char item)
         print_run(item);
         break;
     case 4:
+#ifdef HUN
+        if (item == 1) { hun_toggle(); break; }
+#endif
         message(S_ABOUT, S_ABOUT1, S_ABOUT3, 0);
         break;
     }
@@ -3110,6 +3151,13 @@ static unsigned char hu_key(void)
         hu_last = 0xFF;
         return 0;
     }
+#ifdef HUN
+    if (!(PEEK(0xDC01) & 0x10)) {       /* C= + espace : change de clavier */
+        POKE(0xDC00, 0x7F);
+        asm("cli");
+        return 0xFA;
+    }
+#endif
     POKE(0xDC00, 0xFD);                 /* rangee 1 : Shift gauche, bit 7 */
     c = ~PEEK(0xDC01);
     POKE(0xDC00, 0xBF);                 /* rangee 6 : Shift droit, bit 4 */
@@ -3196,6 +3244,51 @@ static void key_click(void)
     POKE(0xD404, 0x81);                 /* bruit */
 }
 
+#ifdef REU
+/* CLR/HOME : debut de la ligne ; deja au debut : fin de la ligne. */
+static void home_end(void)
+{
+    unsigned i = line_of(cursor), e;
+    if (cursor != lstart[i]) { cursor = lstart[i]; return; }
+    e = lstart[i + 1];
+    if (i + 1 < nlines && e > lstart[i]) --e;
+    cursor = canonical(e);
+}
+
+/* Suppression vers l'avant (Shift + CLR/HOME). */
+static void delete_after(void)
+{
+    unsigned p = cursor;
+    if (has_selection()) { delete_selection(); return; }
+    anchor = NOSEL;
+    while (p < doclen && IS_MARK(text[p])) ++p;
+    if (p < doclen) delete_range(cursor, p + 1);
+}
+#endif
+#ifdef HUN
+/* C= et espace tenues ensemble ? */
+static unsigned char cs_down(void)
+{
+    unsigned char r;
+    asm("sei");
+    POKE(0xDC00, 0x7F);
+    r = PEEK(0xDC01);
+    POKE(0xDC00, 0x7F);
+    asm("cli");
+    return !(r & 0x10) || !(r & 0x20);
+}
+
+static void hun_toggle(void)
+{
+    hun_on ^= 1;
+    hun_set(hun_on);
+    draw_status();
+    while (cs_down()) poll_mouse();             /* attend le relachement : pas de double bascule */
+    POKE(198, 0);                               /* ni de repetition de l'espace */
+    joy_hold = 3;
+}
+#endif
+
 static void handle_key(unsigned char k)
 {
     unsigned char c;
@@ -3206,7 +3299,17 @@ static void handle_key(unsigned char k)
     case 0x9D: clear_selection(); move_left(); break;
     case 0x11: clear_selection(); move_vertical(1); break;
     case 0x91: clear_selection(); move_vertical(-1); break;
+#ifdef REU
+    case 0x13: clear_selection(); home_end(); break;
+    case 0x09: { unsigned char i; key_click(); for (i = 0; i < 4; ++i) insert_char(' '); return; }
+    case 0x7F:
+    case 0x93: key_click(); delete_after(); return;     /* Shift + CLR/HOME : suppression vers l'avant (HUN : 0x7F, C64 : 0x93) */
+#else
     case 0x13: clear_selection(); cursor = lstart[line_of(cursor)]; break;
+#endif
+#ifdef HUN
+    case 0xFA: hun_toggle(); return;
+#endif
     case 3:    clear_selection(); return;
     case 0x85:
 #ifdef REU
@@ -3460,6 +3563,11 @@ void main(void)
 #endif
     redraw_all();
 #ifdef REU
+#ifdef HUN
+    hun_on = 1;
+    hun_set(1);                                         /* clavier HUN au depart */
+    draw_status();
+#endif
     led_theme(4);                                       /* molette : sensibilite 1 */
     led_theme(theme_no);                                /* leds : couleur du theme de depart */
 #endif

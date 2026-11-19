@@ -33,14 +33,14 @@ build/plume-hu.prg: $(SRC) src/strings.h src/charmap.h
 # Magic Desk (la RAM d'E/S2 de l'EasyFlash masque les registres du REU).
 SRC_REU := $(SRC) src/reu.s
 define REU_RULE
-build/plume-$(1)-reu.prg: $$(SRC_REU) src/strings.h src/charmap.h plume-reu.cfg
+build/plume-$(1)-reu.prg: $$(SRC_REU) $(3) src/strings.h src/charmap.h plume-reu.cfg
 	@mkdir -p build/$(1)-reu
-	cl65 -t c64 -C plume-reu.cfg -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu $$(SRC_REU)
+	cl65 -t c64 -C plume-reu.cfg -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu $$(SRC_REU) $(3)
 endef
 $(eval $(call REU_RULE,fr,))
 $(eval $(call REU_RULE,en,-DLANG_EN))
 $(eval $(call REU_RULE,dk,-DLANG_EN -DKBD_DK))
-$(eval $(call REU_RULE,hu,-DLANG_EN -DKBD_HU))
+$(eval $(call REU_RULE,hu,-DLANG_EN -DKBD_HU,src/hunkey.s))
 
 build/led.bin: src/led.s src/led.cfg
 	ca65 -o build/led.o src/led.s
