@@ -165,6 +165,17 @@ void __fastcall__ ovl_load(unsigned char n);   /* charge l'overlay n (banque de 
 #define STEP     768                    /* taille mini du morceau qui quitte la fenetre */
 static unsigned char reu_on;
 static dpos win_base;                   /* position dans le document de text[0] */
+/* Sauvegarde rapide : journal des modifications (dans le REU) -> fichier .bck. Le code est dans l'overlay 3. */
+static unsigned char op_ok;                     /* le chargement / l'enregistrement qui vient de finir a reussi */
+static unsigned char jr_ok;                     /* un journal valide existe (le document a un fichier de base) */
+static unsigned jr_len, jr_last = 0xFFFF;       /* longueur du journal, debut du dernier enregistrement */
+static dpos jr_lp;                              /* dernier enregistrement : position, octets supprimes / inseres */
+static unsigned jr_ld, jr_li;
+static void jr_log(unsigned a, unsigned del, unsigned n);
+static void quick_save(void);
+static void bck_saved(void);
+static void bck_loaded(void);
+static unsigned char quiet;                     /* pas de dessin (relecture du journal) */
 static dpos suf_len;                    /* octets apres la fenetre, dans le REU */
 static dpos suf_end;                    /* adresse REU de la fin du suffixe */
 static unsigned char win_style;         /* style au debut de la fenetre */
@@ -701,7 +712,7 @@ static void draw_status(void)
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
 static const char *const menu_items[NMENUS][7] = {
 #ifdef RTF
-    { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, S_SAVERTF, 0 },
+    { S_NEW, S_OPEN, S_QSAVE, S_SAVE, S_SAVEAS, S_SAVERTF, 0 },
 #else
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
@@ -712,7 +723,7 @@ static const char *const menu_items[NMENUS][7] = {
 };
 static const char *const menu_keys[NMENUS][7] = {
 #ifdef RTF
-    { "", "", "F1", "", "", 0 },
+    { "", "", "F1", "", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
@@ -794,6 +805,10 @@ static unsigned char mouse_y, clicked, extend, held, last_buttons;
 unsigned char joy_read(void);
 extern unsigned char joy_p1;
 static unsigned char joy_speed, joy_tick, joy_hold, hold_a2, wheel, wheel_last, wheel_t, wheel_n;
+#ifdef REU
+static unsigned char click_hold, click_n;     /* double / triple clic : images restantes, nombre de clics */
+static unsigned click_p;
+#endif
 
 static void poll_mouse(void)
 {
@@ -821,7 +836,11 @@ static void poll_mouse(void)
     mouse_x = mi.pos.x;
     mouse_y = (unsigned char)mi.pos.y;
     j = joy_read();
-    if (PEEK(0xA2) != hold_a2) { hold_a2 = PEEK(0xA2); if (joy_hold) --joy_hold; }
+    if (PEEK(0xA2) != hold_a2) { hold_a2 = PEEK(0xA2); if (joy_hold) --joy_hold;
+#ifdef REU
+        if (click_hold) --click_hold;
+#endif
+    }
     if (joy_p1) joy_hold = 6;
 #ifdef DBGKEY
     if (joy_p1) { if (joy_p1 == 4 || joy_p1 == 8) ++*(unsigned char *)0x02B9; else ++*(unsigned char *)0x02BA; }
@@ -1002,6 +1021,9 @@ static unsigned char ask_text(const char *title, const char *label, char *buf, u
 
 static void refresh_after(unsigned first, unsigned char all)
 {
+#ifdef REU
+    if (quiet) return;
+#endif
     if (all) draw_lines(first, top + VISIBLE - 1);
     else draw_lines(relayout_from, relayout_last);
     place_cursor();
@@ -1025,6 +1047,9 @@ static unsigned char replace(unsigned a, unsigned b, const unsigned char *src, u
     if (from_io) io_show();
     doclen = doclen - (b - a) + n;
     dirty = 1;
+#ifdef REU
+    jr_log(a, b - a, n);
+#endif
     first = relayout(a, b, a + n, &all);
     refresh_after(first, all);
     return 1;
@@ -1058,6 +1083,50 @@ static void reu_move(unsigned char fetch, void *mem, dpos ra, unsigned n)
         ra += k;
         n -= k;
     }
+}
+
+/* Journal de la sauvegarde rapide : dans le REU, apres les 4 Ko de bloc-notes de l'impression.
+   Enregistrement : position (3), octets supprimes (2), octets inseres (2), puis les octets inseres.
+   Les frappes qui se suivent prolongent le dernier enregistrement. */
+#define JR_BASE (suf_end + 0x1000UL)
+#define JR_MAX  61000u
+
+static void jr_hdr(void)
+{
+    static unsigned char h[7];
+    h[0] = (unsigned char)jr_lp; h[1] = (unsigned char)(jr_lp >> 8); h[2] = (unsigned char)(jr_lp >> 16);
+    h[3] = (unsigned char)jr_ld; h[4] = (unsigned char)(jr_ld >> 8);
+    h[5] = (unsigned char)jr_li; h[6] = (unsigned char)(jr_li >> 8);
+    reu_move(0, h, JR_BASE + jr_last, 7);
+}
+
+static void jr_log(unsigned a, unsigned del, unsigned n)
+{
+    dpos g = win_base + a;
+    if (!jr_ok || (!del && !n)) return;
+    if (jr_last != 0xFFFF && !jr_ld) {
+        if (!del && n && g == jr_lp + jr_li) {                          /* frappe : on prolonge */
+            if (jr_len + n > JR_MAX) { jr_ok = 0; return; }
+            reu_move(0, text + a, JR_BASE + jr_len, n);
+            jr_len += n;
+            jr_li += n;
+            jr_hdr();
+            return;
+        }
+        if (del == 1 && !n && jr_li && g + 1 == jr_lp + jr_li) {        /* retour arriere sur du texte tape */
+            --jr_len;
+            if (--jr_li) jr_hdr(); else { jr_len = jr_last; jr_last = 0xFFFF; }
+            return;
+        }
+    }
+    if (jr_len + 7u + n > JR_MAX) { jr_ok = 0; return; }
+    jr_last = jr_len;
+    jr_lp = g;
+    jr_ld = del;
+    jr_li = n;
+    jr_hdr();
+    if (n) reu_move(0, text + a, JR_BASE + jr_len + 7, n);
+    jr_len += 7 + n;
 }
 
 /* Taille du REU : la banque b renvoie sur la banque 0 quand b est la taille. */
@@ -1228,31 +1297,61 @@ static unsigned char ask_name(const char *title, char *dest)
 }
 #define ask_filename() ask_name(S_SAVEAS, filename)
 
+/* Pas assez de place : on laisse effacer un fichier du disque, ou changer de disque (Annuler dans la
+   liste), puis fit_check recompte. Sauver ne doit jamais devenir impossible. */
+static void free_space(void)
+{
+    unsigned char sel;
+    char *n = (char *)outbuf + 64;
+    fpage = 0;
+    scan_dir(0);
+    if (nfiles) {
+        sel = pick_file(S_DELPICK, 0);
+        if (sel < nfiles) {
+            io_hide();
+            strcpy(n, names[sel]);
+            io_show();
+            petscii_to_text((char *)outbuf + 100, n);
+            if (message(S_DELPICK, (char *)outbuf + 100, S_DELQ, 1)) {
+                strcpy(cmdname, "S0:");
+                strcat(cmdname, n);
+                cbm_open(15, 8, 15, cmdname);
+                cbm_close(15);
+            }
+        }
+    }
+    redraw_all();
+}
+
 /* Verifie qu'un fichier de "bytes" octets tient sur le disque et prepare cmdname.
    Assez de place : "@0:" (remplace sans risque). Sinon, si l'ancien fichier du meme
-   nom libere assez, apres confirmation il est efface d'abord. */
+   nom libere assez, apres confirmation il est efface d'abord. Sinon on propose d'effacer
+   un autre fichier ou de changer de disque. */
 static unsigned char fit_check(dpos bytes, const char *name)
 {
     dpos nb = (bytes + 253) / 254;
     unsigned need = nb > 60000UL ? 60000u : (unsigned)nb;
-    char *b = (char *)outbuf;
-    scan_dir(name);
-    strcpy(cmdname, "@0:");
-    if (need > blk_free) {
-        if (!blk_old || need > blk_free + blk_old) {
-            strcpy(b, S_NEEDFREE);
-            b = utoa_simple(b + strlen(b), need);
-            *b++ = '/';
-            utoa_simple(b, blk_free);
-            message(S_SAVEAS, S_NOROOM, (char *)outbuf, 0);
-            return 0;
+    char *b;
+    for (;;) {
+        scan_dir(name);
+        strcpy(cmdname, "@0:");
+        if (need <= blk_free) break;
+        if (blk_old && need <= blk_free + blk_old) {
+            if (!message(S_SAVEAS, S_REPL1, S_REPL2, 1)) return 0;
+            strcpy(cmdname, "S0:");
+            strcat(cmdname, name);
+            cbm_open(15, 8, 15, cmdname);
+            cbm_close(15);
+            strcpy(cmdname, "0:");
+            break;
         }
-        if (!message(S_SAVEAS, S_REPL1, S_REPL2, 1)) return 0;
-        strcpy(cmdname, "S0:");
-        strcat(cmdname, name);
-        cbm_open(15, 8, 15, cmdname);
-        cbm_close(15);
-        strcpy(cmdname, "0:");
+        b = (char *)outbuf;
+        strcpy(b, S_NEEDFREE);
+        b = utoa_simple(b + strlen(b), need);
+        *b++ = '/';
+        utoa_simple(b, blk_free);
+        if (!message(S_SAVEAS, S_NOROOM, (char *)outbuf, 1)) return 0;
+        free_space();
     }
     strcat(cmdname, name);
     strcat(cmdname, ",S,W");
@@ -1318,6 +1417,9 @@ static void save_doc(void)
     dirty = 0;
     shown_dirty = 255;                          /* le titre (le nom) se redessine toujours */
     draw_status();
+#ifdef REU
+    bck_saved();
+#endif
 }
 
 static void new_doc(void)
@@ -1336,6 +1438,11 @@ static void new_doc(void)
     filename[0] = 0;
 #ifdef RTF
     rtf_doc = 0;
+#endif
+#ifdef REU
+    jr_ok = 0;
+    jr_len = 0;
+    jr_last = 0xFFFF;
 #endif
     layout_all();
 }
@@ -1726,6 +1833,9 @@ static void load_named(void)
         message(S_OPEN, S_BADFILE, 0, 0);
     }
     else if (disk_status() >= 20) { show_disk_error(); return; }
+#ifdef REU
+    op_ok = ok;
+#endif
     cursor = 0;
     anchor = NOSEL;
     top = 0;
@@ -1765,12 +1875,16 @@ static void open_doc(void)
         io_hide();
         strcpy(filename, names[sel]);
         io_show();
+        op_ok = 0;
 #ifdef RTF
         if (file_is_rtf()) {
             if (reu_on) rtf_open(); else message(S_OPENRTF, S_NEEDREU, 0, 0);
         } else
 #endif
         load_named();
+#ifdef REU
+        if (op_ok) bck_loaded();
+#endif
     }
     redraw_all();
 }
@@ -2251,6 +2365,9 @@ static void apply_style(unsigned char bit)
     memmove(q, end, (unsigned)(&text[MAXDOC] - end));
     doclen = w + (unsigned)(&text[MAXDOC] - end);
     dirty = 1;
+#ifdef REU
+    jr_log(a, b - a, w - a);
+#endif
     anchor = a;
     cursor = sel_end;
     first = relayout(a, b, w, &all);
@@ -2518,6 +2635,7 @@ static void load_rtf(void)
     }
     cbm_close(2);
     disk_busy(0);
+    op_ok = ok;
     if (ok) {
         r_flush();
         total = win_base;
@@ -2615,6 +2733,7 @@ static unsigned char write_rtf(char *name)
     if (disk_status() >= 20) { show_disk_error(); return 0; }
     dirty = 0;
     draw_status();
+    op_ok = 1;
     return 1;
 }
 
@@ -2634,8 +2753,175 @@ static void save_rtf(void)
 #pragma code-name (pop)
 
 static void rtf_open(void) { ovl_load(1); load_rtf(); }
-static void rtf_save(void) { ovl_load(1); save_rtf(); }
-static unsigned char rtf_write(char *name) { ovl_load(1); return write_rtf(name); }
+static void rtf_save(void) { op_ok = 0; ovl_load(1); save_rtf(); if (op_ok) bck_saved(); }
+static unsigned char rtf_write(char *name)
+{
+    unsigned char r;
+    op_ok = 0;
+    ovl_load(1);
+    r = write_rtf(name);
+    if (op_ok) bck_saved();
+    return r;
+}
+#endif
+
+#ifdef REU
+/* ------------------------------------------------------------------ */
+/* Sauvegarde rapide : le fichier NOM.bck contient le journal des modifications depuis le dernier
+   enregistrement complet. Au chargement, il est rejoue sur le fichier de base. Overlay 3. */
+#pragma code-name (push, "OVERLAY3")
+#pragma rodata-name (push, "OVERLAY3")
+
+static char bckname[20];
+static dpos base_len;                           /* le document tel qu'il est au fichier de base */
+static unsigned base_sig;
+
+static void make_bck(void)
+{
+    unsigned char i = 0;
+    while (filename[i] && filename[i] != '.' && i < 12) { bckname[i] = filename[i]; ++i; }
+    bckname[i] = 0;
+    strcat(bckname, ".\x42\x43\x4B");                /* ".bck" en PETSCII */
+}
+
+/* Signature : trois echantillons de 128 octets (debut, milieu, fin) et la longueur. */
+static unsigned doc_sig(void)
+{
+    dpos t = doc_total(), g;
+    unsigned sig = (unsigned)t;
+    unsigned char i, k, j;
+    for (j = 0; j < 3; ++j) {
+        g = j == 0 ? 0 : j == 1 ? t / 2 : (t > 128 ? t - 128 : 0);
+        k = t - g > 128 ? 128 : (unsigned char)(t - g);
+        doc_read(outbuf, g, k);
+        for (i = 0; i < k; ++i) sig = ((sig << 1) | (sig >> 15)) ^ outbuf[i];
+    }
+    return sig;
+}
+
+/* Le document est identique a son fichier : le journal repart de zero. */
+static void base_set(void)
+{
+    base_len = doc_total();
+    base_sig = doc_sig();
+    jr_len = 0;
+    jr_last = 0xFFFF;
+    jr_ok = filename[0] != 0;
+}
+
+/* Apres un enregistrement complet : nouvelle base, et le .bck n'a plus lieu d'etre. */
+static void bck_saved_(void)
+{
+    base_set();
+    if (!jr_ok) return;
+    make_bck();
+    strcpy(cmdname, "S0:");
+    strcat(cmdname, bckname);
+    cbm_open(15, 8, 15, cmdname);
+    cbm_close(15);
+}
+
+static void quick_save_(void)
+{
+    static unsigned char hd[12];
+    if (!jr_len) { dirty = 0; shown_dirty = 255; draw_status(); return; }
+    make_bck();
+    if (!fit_check(12UL + jr_len, bckname)) return;
+    memcpy(hd, "PBK1", 4);
+    hd[4] = (unsigned char)base_len; hd[5] = (unsigned char)(base_len >> 8);
+    hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
+    hd[8] = (unsigned char)base_sig; hd[9] = (unsigned char)(base_sig >> 8);
+    hd[10] = (unsigned char)jr_len; hd[11] = (unsigned char)(jr_len >> 8);
+    disk_busy(1);
+    if (cbm_open(2, 8, 2, cmdname) == 0) {
+        cbm_write(2, hd, 12);
+        write_reu(JR_BASE, jr_len);
+        cbm_close(2);
+    }
+    disk_busy(0);
+    if (disk_status() >= 20) { show_disk_error(); return; }
+    dirty = 0;
+    shown_dirty = 255;
+    draw_status();
+}
+
+/* Rejoue les enregistrements du .bck (canal 2 ouvert, apres l'en-tete). */
+static void bck_replay(unsigned total)
+{
+    static unsigned char h[7];
+    static dpos gp;
+    static unsigned del, ins, done, k;
+    done = 0;
+    while (done + 7u <= total && cbm_read(2, h, 7) == 7) {
+        gp = h[0] | ((dpos)h[1] << 8) | ((dpos)h[2] << 16);
+        del = h[3] | (h[4] << 8);
+        ins = h[5] | (h[6] << 8);
+        done += 7 + ins;
+        if (done > total) break;
+        if (gp > win_base + doclen + suf_len) break;
+        if (gp + del > win_base + doclen) relocate(para_start(gp > 400 ? gp - 400 : 0));
+        if (gp < win_base || gp + del > win_base + doclen) relocate(para_start(gp > 400 ? gp - 400 : 0));
+        if (del && !replace((unsigned)(gp - win_base), (unsigned)(gp - win_base) + del, 0, 0, 0)) break;
+        while (ins) {
+            k = ins > 400 ? 400 : ins;
+            if (cbm_read(2, outbuf, k) != (int)k) return;
+            if (MAXDOC - doclen < ROOM + 400 || gp < win_base || gp > win_base + doclen)
+                relocate(para_start(gp > 400 ? gp - 400 : 0));
+            if (!replace((unsigned)(gp - win_base), (unsigned)(gp - win_base), outbuf, k, 0)) return;
+            gp += k;
+            ins -= k;
+        }
+    }
+}
+
+/* Apres le chargement d'un fichier : s'il y a un .bck qui lui correspond, on le rejoue. */
+static void bck_loaded_(void)
+{
+    static unsigned char hd[12];
+    static unsigned total;
+    unsigned char good = 0, bad = 0;
+    base_set();
+    if (!jr_ok) return;
+    make_bck();
+    strcpy(cmdname, bckname);
+    strcat(cmdname, ",S,R");
+    disk_busy(1);
+    if (cbm_open(2, 8, 2, cmdname) == 0) {
+        if (cbm_read(2, hd, 12) == 12 && !memcmp(hd, "PBK1", 4)) {
+            total = hd[10] | (hd[11] << 8);
+            if (base_len == (hd[4] | ((dpos)hd[5] << 8) | ((dpos)hd[6] << 16) | ((dpos)hd[7] << 24))
+                && base_sig == (hd[8] | (hd[9] << 8))) {
+                quiet = 1;
+                bck_replay(total);
+                quiet = 0;
+                good = 1;
+            } else bad = 1;
+        }
+        cbm_close(2);
+    }
+    disk_busy(0);
+    disk_status();                              /* efface une erreur "fichier absent" */
+    if (good) {
+        goto_global(0, 0);
+        cursor = top = 0;
+        anchor = NOSEL;
+        layout_all();
+        style = style_before(0);
+        dirty = 0;
+        message(S_OPEN, S_RESTORED, 0, 0);
+    } else if (bad) message(S_OPEN, S_BCKBAD, 0, 0);
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+
+static void quick_save(void) { ovl_load(3); quick_save_(); }
+static void bck_saved(void) { ovl_load(3); bck_saved_(); }
+static void bck_loaded(void) { ovl_load(3); bck_loaded_(); }
+/* F1 : sauvegarde rapide, ou enregistrement complet quand il n'y a pas encore de fichier de base. */
+static void f1_save(void)
+{
+    if (filename[0] && jr_ok) quick_save(); else save_doc();
+}
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -2692,18 +2978,17 @@ static void do_menu(unsigned char m, unsigned char item)
     case 0:
         if (item == 0 && (!dirty || message(S_NEW, S_LOSE, 0, 1))) { new_doc(); redraw_all(); }
         if (item == 1) open_doc();
-        if (item == 2) save_doc();
-        if (item == 3 && ask_filename()) {
 #ifdef RTF
-            rtf_doc = 0;
-#endif
-            save_doc();
-        }
-#ifdef RTF
-        if (item == 4) {
+        if (item == 2) f1_save();               /* sauvegarde rapide */
+        if (item == 3) save_doc();              /* enregistrement complet */
+        if (item == 4 && ask_filename()) { rtf_doc = 0; save_doc(); }
+        if (item == 5) {
             if (!reu_on) message(S_SAVERTF, S_NEEDREU, 0, 0);
             else rtf_save();
         }
+#else
+        if (item == 2) save_doc();
+        if (item == 3 && ask_filename()) save_doc();
 #endif
         break;
     case 1:
@@ -2923,7 +3208,13 @@ static void handle_key(unsigned char k)
     case 0x91: clear_selection(); move_vertical(-1); break;
     case 0x13: clear_selection(); cursor = lstart[line_of(cursor)]; break;
     case 3:    clear_selection(); return;
-    case 0x85: save_doc(); return;
+    case 0x85:
+#ifdef REU
+        f1_save();
+#else
+        save_doc();
+#endif
+        return;
     case 0x86: apply_style(BOLD); return;
     case 0x87: apply_style(ITALIC); return;
     case 0x88: apply_style(UNDERLINE); return;
@@ -3008,6 +3299,39 @@ static void sbar_drag(void)
 }
 #endif
 
+#ifdef REU
+/* Double clic : le mot sous le pointeur ; triple clic : la phrase (jusqu'a . ! ? ou fin de paragraphe). */
+static unsigned char wordch(unsigned char c)
+{
+    return (c >= '0' && c <= '9') || ((c | 32) >= 'a' && (c | 32) <= 'z') || c >= 128;
+}
+
+static unsigned char endch(unsigned char c)
+{
+    return c == '.' || c == '!' || c == '?';
+}
+
+static void select_unit(unsigned p, unsigned char n)
+{
+    unsigned a = p, b = p;
+    unsigned char c;
+    if (n == 2) {
+        while (a && wordch(text[a - 1])) --a;
+        while (b < doclen && wordch(text[b])) ++b;
+    } else {
+        while (a) {
+            c = text[a - 1];
+            if (c == CR || (c == ' ' && a > 1 && endch(text[a - 2]))) break;
+            --a;
+        }
+        while (b < doclen && (c = text[b]) != CR) { ++b; if (endch(c)) break; }
+    }
+    if (a == b) return;
+    set_selection(a, b);
+    cursor_moved();
+}
+#endif
+
 static void handle_click(void)
 {
     unsigned char row = mouse_y / 8, m, k;
@@ -3032,6 +3356,16 @@ static void handle_click(void)
         set_selection(anchor == NOSEL ? cursor : anchor, p);
         return;
     }
+#ifdef REU
+    if (click_hold && p == click_p && click_n < 3) ++click_n; else click_n = 1;
+    click_p = p;
+    if (click_n > 1) {
+        select_unit(p, click_n);
+        while (held) poll_mouse();
+        click_hold = 20;
+        return;
+    }
+#endif
     if (anchor != NOSEL) set_selection(NOSEL, p);
     else cursor = p;
     cursor_moved();
@@ -3045,6 +3379,9 @@ static void handle_click(void)
 #endif
     }
     if (anchor == cursor) anchor = NOSEL;
+#ifdef REU
+    click_hold = 20;
+#endif
 }
 
 /* ------------------------------------------------------------------ */

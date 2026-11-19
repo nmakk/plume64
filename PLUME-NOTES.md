@@ -82,3 +82,10 @@ A kódhely-kérdés eldőlt, a terv módosult (részletek és mérések: Claude 
 
 - A File menü „Open…” sora a fájl első 5 bájtja alapján felismeri az RTF-et és a saját (PLM) formátumot; az „Open RTF…” sor megszűnt. F1 abban a formátumban ment, amelyben a fájl van; „Save as…” saját formátumban, „Save as RTF…” RTF-ben.
 - A nyomtatási puffer (`outbuf`) a $0540-es képernyő-RAM-ba költözött, a verem 0x180 (REU-buildek hely miatt). Recovery pont: tag `recovery-2.2e-pre-overlay`.
+
+## Frissítés (2026-11-19): overlayek, gyorsmentés, dupla/tripla kattintás
+
+- **Overlayek:** `plume-reu.cfg` (c64.cfg + közös RAM-terület `__OVERLAYSTART__`, 4 KB). Az 1. overlay az RTF, a 2. a nyomtatás, a 3. a gyorsmentés; a cartridge 49., 50., 51. bankjában, `ovl_load(n)` (src/reu.s) másolja a közös területre (a $0334-es betöltőn át, ROML csak aktív cartridge mellett látszik). Overlayből másik overlayt betölteni TILOS (felülírná magát); a belépési pontok (rtf_open, rtf_save, rtf_write, quick_save, bck_saved, bck_loaded, print_run) rezidens burkolók. Ha az overlay-n belüli kód rezidens függvényt hív, az sem tölthet be másik overlayt.
+- **Gyorsmentés:** a `replace()` és az `apply_style()` naplózza a szerkesztést (`jr_log`) a REU utolsó bankjába (suf_end + $1000-től, 61000 bájtig). F1 = `NÉV.bck` (PBK1 + alaphossz + aláírás + naplóhossz + napló); a "Save" a teljes mentés és törli a .bck-t; betöltéskor `bck_loaded_` rejátssza. Lemezhely: `fit_check` + `free_space` (törlés vagy lemezcsere felkínálása).
+- **Mérési tanulság:** lemezművelet közben (különösen nagy fájl törlésekor) NE olvasd a C64U memóriáját a REST-en át: a DMA elrontja az IEC-et, a gép lefagy / szemetet mutat.
+- **Dupla/tripla kattintás:** `select_unit` (REU), 20 képkockás időablak (`click_hold`).
