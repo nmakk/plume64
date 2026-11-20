@@ -20,7 +20,7 @@ Not yet merged: your later commits (2.3 HU "Hide idle pointer", the `dist/*.prg`
 
 ## 2. Editing features
 - **Undo / Redo**: CTRL+Z / CTRL+Y, RESTORE / Shift+RESTORE, Edit menu. Step by step (each typed letter is one step; a paste, a cut or a huge delete is one step), back to the start of the session and across saves; 256 KB journal, 256 KB of deleted text, 40,000 records, 4096 redo steps (smaller on REUs under 2 MB). Edits restored from a `.bck` can be undone too.
-- **Quick save (F1)**: a `.bck` journal (position, delete and insert records, typing and backspace coalesced), base file verified by a signature (length plus a checksum of 3 samples), restored automatically on open, deleted by a full save, warning if it does not match (`PBK2` format).
+- **Quick save (F1)**: a `.bck` journal (position, delete and insert records, typing and backspace coalesced), base file verified by a signature (length plus a checksum of 3 samples), restored automatically on open, deleted by a full save, if it does not match the file the user is asked whether to apply it anyway (`PBK3` format; `PBK2` files are still read, by length only). Fixed: the signature's end sample was read from a wrong REU address (cc65 truncates nested `?:` on 32-bit values), so a valid `.bck` could be rejected on the next session.
 - **RESTORE keys**: RUN/STOP+RESTORE reloads the file from disk without its `.bck`; Shift+RUN/STOP+RESTORE reloads it with the `.bck` (also in the File menu). RUN/STOP+RESTORE no longer drops to BASIC.
 - **Double click** selects a word, **triple click** a sentence.
 - **Insert/overwrite mode** (Shift+INST/DEL) with an I/O indicator in the status line.

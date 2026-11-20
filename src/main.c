@@ -3280,15 +3280,20 @@ static void make_bck(void)
     strcat(bckname, ".\x42\x43\x4B");                /* ".bck" en PETSCII */
 }
 
-/* Signature : trois echantillons de 128 octets (debut, milieu, fin) et la longueur. */
+/* Signature : trois echantillons de 128 octets (debut, milieu, fin) et la longueur.
+   Attention : pas de ?: imbriques sur des dpos (cc65 tronque a 16 bits avec extension de signe :
+   l'echantillon de fin lisait une adresse REU hors du document, donc differente a chaque session). */
 static unsigned doc_sig(void)
 {
     dpos t = doc_total(), g;
     unsigned sig = (unsigned)t;
     unsigned char i, k, j;
     for (j = 0; j < 3; ++j) {
-        g = j == 0 ? 0 : j == 1 ? t / 2 : (t > 128 ? t - 128 : 0);
-        k = t - g > 128 ? 128 : (unsigned char)(t - g);
+        g = 0;
+        if (j == 1) g = t / 2;
+        else if (j == 2 && t > 128) g = t - 128;
+        k = 128;
+        if (t - g < 128) k = (unsigned char)(t - g);
         doc_read(outbuf, g, k);
         for (i = 0; i < k; ++i) sig = ((sig << 1) | (sig >> 15)) ^ outbuf[i];
     }
@@ -3329,7 +3334,7 @@ static void quick_save_(void)
     if (jr_len == jb) { bck_del(); dirty = 0; shown_dirty = 255; draw_status(); return; }
     make_bck();
     if (!fit_check(13UL + jr_len - jb, bckname)) return;
-    memcpy(hd, "PBK2", 4);
+    memcpy(hd, "PBK3", 4);
     hd[4] = (unsigned char)base_len; hd[5] = (unsigned char)(base_len >> 8);
     hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
     hd[8] = (unsigned char)base_sig; hd[9] = (unsigned char)(base_sig >> 8);
@@ -3385,7 +3390,7 @@ static void bck_loaded_(void)
 {
     static unsigned char hd[13];
     static dpos total;
-    unsigned char good = 0, bad = 0;
+    unsigned char good = 0, ok;
     base_set(0);
     if (!jr_ok) return;
     if (bck_skip) return;                       /* RESTORE+RUN/STOP : le fichier seul */
@@ -3394,16 +3399,23 @@ static void bck_loaded_(void)
     strcat(cmdname, ",S,R");
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) == 0) {
-        if (cbm_read(2, hd, 13) == 13 && !memcmp(hd, "PBK2", 4)) {
+        if (cbm_read(2, hd, 13) == 13 && !memcmp(hd, "PBK", 3) && (hd[3] == '2' || hd[3] == '3')) {
             total = hd[10] | ((dpos)hd[11] << 8) | ((dpos)hd[12] << 16);
-            if (base_len == (hd[4] | ((dpos)hd[5] << 8) | ((dpos)hd[6] << 16) | ((dpos)hd[7] << 24))
-                && base_sig == (hd[8] | (hd[9] << 8))) {
+            /* PBK2 : sa signature etait faussee (voir doc_sig), seule la longueur compte */
+            ok = base_len == (hd[4] | ((dpos)hd[5] << 8) | ((dpos)hd[6] << 16) | ((dpos)hd[7] << 24))
+                 && (hd[3] == '2' || base_sig == (hd[8] | (hd[9] << 8)));
+            if (!ok) {                          /* jamais de perte silencieuse : on propose de l'appliquer */
+                disk_busy(0);
+                ok = message(S_OPEN, S_BCKBAD, S_BCKASK, 1);
+                disk_busy(1);
+            }
+            if (ok) {
                 quiet = 1;
                 bck_replay(total);
                 jr_blk = 0;
                 quiet = 0;
                 good = 1;
-            } else bad = 1;
+            }
         }
         cbm_close(2);
     }
@@ -3417,7 +3429,7 @@ static void bck_loaded_(void)
         style = style_before(0);
         dirty = 0;
         message(S_OPEN, S_RESTORED, 0, 0);
-    } else if (bad) message(S_OPEN, S_BCKBAD, 0, 0);
+    }
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
