@@ -26,6 +26,8 @@
 
 1. Copiez [`dist/plume-fr.crt`](dist/plume-fr.crt) (ou [`plume-en.crt`](dist/plume-en.crt)) sur votre carte SD ou votre cartouche flash.
 2. Montez une disquette ou un `.d64` sur le lecteur 8 pour vos documents. [`dist/plume.d64`](dist/plume.d64) est un disque vierge.
+
+   Édition REU (Plume 2.2e, cartouche Magic Desk, REU requis) : [`dist/plume-fr-2.2e.crt`](dist/plume-fr-2.2e.crt), [`en`](dist/plume-en-2.2e.crt), [`dk`](dist/plume-dk-2.2e.crt), [`hu`](dist/plume-hu-2.2e.crt) (aussi dans la [release v2.2e](https://github.com/nmakk/plume64/releases/tag/v2.2e)).
 3. Lancez la cartouche.
 
 ### Clavier
@@ -189,6 +191,8 @@ Les cartouches sont dans `build/plume-fr.crt`, `build/plume-en.crt`, `build/plum
 
 1. Copy [`dist/plume-en.crt`](dist/plume-en.crt) (or [`plume-fr.crt`](dist/plume-fr.crt)) to your SD card or flash cartridge.
 2. Put a disk or a `.d64` in drive 8 for your documents. [`dist/plume.d64`](dist/plume.d64) is an empty one.
+
+   REU edition (Plume 2.2e, Magic Desk cartridge, REU required): [`dist/plume-fr-2.2e.crt`](dist/plume-fr-2.2e.crt), [`en`](dist/plume-en-2.2e.crt), [`dk`](dist/plume-dk-2.2e.crt), [`hu`](dist/plume-hu-2.2e.crt) (also in the [v2.2e release](https://github.com/nmakk/plume64/releases/tag/v2.2e)).
 3. Start the cartridge.
 
 **Danish edition** (`dist/plume-dk.crt`, English menus): `:` `;` `@` type æ ø å, and with `Shift` Æ Ø Å; `Shift` + `.` and `Shift` + `,` give `:` and `;`; `C=` + `@` gives `@`. `<`, `>`, `[` and `]` are not available in this edition. Every edition displays and prints æ ø å Æ Ø Å (the printer's Text mode prints them as a, o, a).
