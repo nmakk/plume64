@@ -22,6 +22,26 @@
 
 The full list of changes since Plume 2.2 is in [CHANGES.md](CHANGES.md).
 
+## Screenshots
+
+The small font (the default), about 70 characters per line, and the normal font:
+
+![PlumE REU with the small font](docs/images/plumereu-small-font.png)
+
+![PlumE REU with the normal font](docs/images/plumereu-normal-font.png)
+
+The four colour themes (`CTRL` + `←`), with the small font and with the normal font:
+
+![The four colour themes, small font](docs/images/plumereu-themes.png)
+
+![The four colour themes, normal font](docs/images/plumereu-themes-normal-font.png)
+
+The file requester (Open, Save as with the format buttons), the Find box and the About box, and the File and Style menus (small and normal font):
+
+![Dialogs](docs/images/plumereu-dialogs.png)
+
+![Menus](docs/images/plumereu-menus.png)
+
 ## Install
 
 1. Copy the cartridge for your edition to your SD card or USB drive: [`dist/plumereu-en-26a.crt`](dist/plumereu-en-26a.crt), [`fr`](dist/plumereu-fr-26a.crt), [`dk`](dist/plumereu-dk-26a.crt) or [`hu`](dist/plumereu-hu-26a.crt) (also attached to the [release](https://github.com/nmakk/plume64/releases)). They are Magic Desk cartridges.
