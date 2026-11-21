@@ -921,20 +921,20 @@ static const char *const menu_keys[NMENUS][MENUW] = {
     { "", "", "F1", "", 0 },
 #endif
 #ifdef REU
-    { "F6", "F2", "F4", "", "", "F8", "^Z", "^Y", 0 },
+    { "F6", "F2", "F4", "", "", "F8", "Ctrl+Z", "Ctrl+Y", 0 },
 #else
     { "F6", "F2", "F4", "", "", "F8", 0 },
 #endif
 #ifdef REU
-    { "", "F3", "F5", "F7", "^\xB5", "", 0 },
+    { "", "F3", "F5", "F7", "Ctrl+\xB5", "", 0 },
 #else
     { "", "F3", "F5", "F7", 0 },
 #endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=Spc", "^9", "S-Del", 0 },
+    { "", "C=Spc", "Ctrl+9", "S-Del", 0 },
 #elif defined(REU)
-    { "", "^9", 0 },
+    { "", "Ctrl+9", 0 },
 #else
     { "", 0 },
 #endif
