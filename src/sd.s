@@ -10,15 +10,15 @@ RESP  = $DF1E
 STATD = $DF1F
 
 V       = $CB00
-p_path  = V             ; 48  : a konyvtar abszolut utvonala (nullaval zarva)
-p_name  = V+48          ; 36  : fajlnev (nyers bajtok, UTF-8)
-p_ptr   = V+84          ; 2   : adatcim (olvasas / iras)
-p_len   = V+86          ; 2   : hossz / tenylegesen atvitt bajtok
-p_size  = V+88          ; 4   : fajlmeret (info / size)
-p_att   = V+92          ; 1   : konyvtarbejegyzes attributuma
-p_err   = V+93          ; 1   : utolso hibakod ($FF: idotullepes)
-p_reu   = V+94          ; 4   : REU-cim (loadreu / savereu)
-p_rlen  = V+98          ; 4   : hossz (loadreu / savereu)
+p_path  = V             ; 64  : a konyvtar utvonala (nullaval zarva, legfeljebb 63 karakter)
+p_name  = V+64          ; 64  : fajlnev (nyers bajtok, UTF-8, legfeljebb 63 karakter)
+p_ptr   = V+128         ; 2   : adatcim (olvasas / iras)
+p_len   = V+130         ; 2   : hossz / tenylegesen atvitt bajtok
+p_size  = V+132         ; 4   : fajlmeret (info / size)
+p_att   = V+136         ; 1   : konyvtarbejegyzes attributuma
+p_err   = V+137         ; 1   : utolso hibakod ($FF: idotullepes)
+p_reu   = V+138         ; 4   : REU-cim (loadreu / savereu)
+p_rlen  = V+142         ; 4   : hossz (loadreu / savereu)
 
         .segment "BLOB"
         jmp do_probe            ; +0
@@ -183,7 +183,7 @@ rx_ent: lda #<ent
         sta rxs
         lda #>ent
         sta rxs+1
-        lda #46
+        lda #80
         sta rxm
         lda #0
         sta rxm+1
@@ -203,7 +203,7 @@ app_path:
         sta cmdbuf,x
         inx
         iny
-        cpy #48
+        cpy #64
         bne @l
 @d:     rts
 
@@ -214,7 +214,7 @@ app_name:
         sta cmdbuf,x
         inx
         iny
-        cpy #36
+        cpy #64
         bne @l
 @d:     rts
 
@@ -402,7 +402,10 @@ do_dirnext:
         lda dn
         beq @none
         ldx dn
-        lda #0
+        cpx #81                 ; a hosszabb nevet levagjuk (a hivo strlen >= 64 alapjan felismeri)
+        bcc @cl
+        ldx #80
+@cl:    lda #0
         sta ent,x
         lda ent
         sta p_att
@@ -477,7 +480,7 @@ do_getpath:
         sta rxs
         lda #>p_path
         sta rxs+1
-        lda #47
+        lda #63
         sta rxm
         lda #0
         sta rxm+1
@@ -502,5 +505,5 @@ dst:    .res 1
         .segment "BSSB"
 sbuf:   .res 14
         .export ent
-ent:    .res 50
+ent:    .res 84
 cmdbuf = ent            ; a parancs elkuldese utan a puffer a valasz fogadasara szolgal

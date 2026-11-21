@@ -93,7 +93,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define MAXDOC    20000u
 #endif
 #ifdef REU
-#define MAXLINES  520                   /* $C700-tol az SD-modul (src/sd.s) van, $CBC0-nal a 2. sprite */
+#define MAXLINES  520                   /* $C69E-tol az SD-modul puffere, $C700-tol a kodja (src/sd.s), $CBC0-nal a 2. sprite */
 #else
 #define MAXLINES  950
 #endif
@@ -111,12 +111,12 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define CLIP      ((unsigned char *)(0xD000 + 3 * (MAXLINES + 2)))
 #define CLIPMAX   760
 #ifdef REU
-typedef char sd_area_check[1 - 2 * (0xC080 + 3 * (MAXLINES + 2) > 0xC700)];
+typedef char sd_area_check[1 - 2 * (0xC080 + 3 * (MAXLINES + 2) > 0xC69E)];
 #endif   /* a sorok tablazata nem erhet az SD-modulig */
 typedef unsigned long dpos;             /* position dans le document (24 bits utiles) */
 /* Noms de la boite Ouvrir : sous les E/S, apres le presse-papiers. */
 #define names     ((char (*)[28])(0xD000 + 3 * (MAXLINES + 2) + CLIPMAX))
-#define rawn      ((char (*)[36])((char *)names + 13 * 28))   /* az SD-bejegyzesek nyers neve (a meretlekerdezeshez) */
+#define rawn      ((char (*)[64])((char *)names + 13 * 28))   /* az SD-bejegyzesek nyers neve (a meretlekerdezeshez) */
 /* $0334-$03FB, tampon cassette inutilise : petites chaines. */
 #define diskmsg   ((char *)0x0334)              /* 41 octets */
 #define cmdname   ((char *)0x035D)              /* 24 */
@@ -234,20 +234,20 @@ static void bck_loaded(void);
    petit module de src/sd.s, copie en $CC00 au demarrage. sd_on : le document est sur la SD. */
 unsigned char __fastcall__ sd_open(unsigned char mode);
 unsigned char sd_probe(void), sd_close(void), sd_read(void), sd_write(void), sd_dirbeg(void), sd_dirnext(void);
-unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void), sd_getpath(void), sd_abort(void);
+unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void), sd_getpath(void), sd_abort(void), sd_chdir(void);
 #define SD_PATH ((char *)0xCB00)                /* repertoire (absolu) */
-#define SD_NAME ((char *)0xCB30)                /* nom du fichier, octets bruts */
-#define SD_PTR  (*(unsigned *)0xCB54)
-#define SD_LEN  (*(unsigned *)0xCB56)
-#define SD_SIZE (*(unsigned long *)0xCB58)
-#define SD_ATT  (*(unsigned char *)0xCB5C)
-#define SD_REU  (*(unsigned long *)0xCB5E)
-#define SD_RLEN (*(unsigned long *)0xCB62)
-#define SD_ENT  ((unsigned char *)0xCB8E)       /* entree de repertoire : attribut, nom */
-#define SD_SV   ((char *)0xCB66)                /* extension sauvee pendant que le nom est celui du .bck */
-#define SD_PE   (*(unsigned char *)0xCB6E)
+#define SD_NAME ((char *)0xCB40)                /* nom du fichier, octets bruts */
+#define SD_PTR  (*(unsigned *)0xCB80)
+#define SD_LEN  (*(unsigned *)0xCB82)
+#define SD_SIZE (*(unsigned long *)0xCB84)
+#define SD_ATT  (*(unsigned char *)0xCB88)
+#define SD_REU  (*(unsigned long *)0xCB8A)
+#define SD_RLEN (*(unsigned long *)0xCB8E)
+#define SD_ENT  ((unsigned char *)0xC6AC)       /* entree de repertoire : attribut, nom */
+#define SD_SV   ((char *)0xCB92)                /* extension sauvee pendant que le nom est celui du .bck */
+#define SD_PE   (*(unsigned char *)0xCB9A)
 static char sd_title[28];                       /* az SD-n levo dokumentum neve a cimsorhoz (megjelenitesre kesz) */
-static char sd_cand[36];                        /* a valasztoban kijelolt SD-nev (a dokumentum neve csak jovahagyas utan valtozik) */
+#define sd_cand ((char *)outbuf + 128)         /* a valasztoban kijelolt SD-nev, 64 bajt (a dokumentum neve csak jovahagyas utan valtozik) */
 static char dlabel[4] = "U08";
 static unsigned char sd_on, sd_ok, sd_bad, sd_pk, sd_ca, at12, pk_first;
 static void sd_conv(char *d, const unsigned char *s, unsigned char n);       /* sd_ca : a kivalasztott bejegyzes attributuma */
@@ -1779,6 +1779,8 @@ static void ix_tick_(void)
 #endif
 static unsigned char sd_scan_(unsigned char cap);
 static unsigned char fgrey(unsigned char i);
+static void lp_tail(char *d);
+static unsigned char lp_isroot(void);
 /* Liste des fichiers en deux colonnes + blocs libres. Renvoie l'index choisi,
    254 pour "Nouveau..." (si newbtn), 255 si annule. */
 #define RQ_X 16                         /* fajlvalaszto: x, szelesseg (288 kepont), 3. sortol a 20 soros keret */
@@ -1814,10 +1816,11 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
             if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
         }
         outline_box(10, 8, 24, 272);            /* a lista: fejlec-sor (utvonal / szabad blokk) + a bejegyzesek */
-        if (sd_pk) strcpy(b, SD_PATH); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
+        if (sd_pk) lp_tail(b); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(32, 11, b, BOLD);
         for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
             if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
+            else if (fsize[i] == 0xFFFD) strcpy(b, "?");
             else { b = utoa_simple(b, fsize[i] & 0x3FFF); if (sd_pk) *b++ = "KMG"[fsize[i] >> 14]; *b = 0; b = (char *)outbuf; }
             put_text(64 - text_width(b, 0), (unsigned char)(12 + i), b, 0);
             io_hide();
@@ -1864,16 +1867,17 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
 
 /* ---- Fajlvalaszto a SD-kartyan (UCI) ---- */
 /* SD-nev (ASCII / UTF-8) -> PETSCII megjelenitesre, legfeljebb n jel (d: n+1 bajt) ; ha hosszabb, kozepen "~"-vel rovidul (a kiterjesztes lathato marad). */
-static char sd_tmp[36];
+#define sd_tmp ((char *)outbuf + 192)           /* atmeneti nev, 64 bajt */
 static void sd_conv(char *d, const unsigned char *s, unsigned char n)
 {
     unsigned char c, i = 0, h, t;
-    while ((c = *s++) != 0 && i < 35) {
+    while ((c = *s++) != 0 && i < 63) {
         if (c >= 0x80 && c < 0xC0) continue;            /* UTF-8 folytatobajt */
         if (c >= 'a' && c <= 'z') c -= 0x20;
         else if (c >= 'A' && c <= 'Z') c += 0x80;
         else if (c >= 0xC0) c = '?';
-        sd_tmp[i++] = (char)c;
+        sd_tmp[i] = (char)c;                            /* (nem sd_tmp[i++] : a cc65 az allando cimu tombnel a novelest az indexeles elott vegzi) */
+        ++i;
     }
     sd_tmp[i] = 0;
     if (i <= n) { strcpy(d, sd_tmp); return; }
@@ -1896,12 +1900,13 @@ static unsigned char fgrey(unsigned char i)
 static unsigned char sd_scan_(unsigned char cap)
 {
     unsigned tot = 0, skip = fpage;
-    unsigned char r, hf = 0, ab = 0;
+    unsigned char r, hf = 0, ab = 0, root;
     nfiles = 0;
     fmore = 0;
     r = sd_dirbeg();
     if (r > 1) return 0;                        /* 1 : ures konyvtar (01,DIRECTORY EMPTY) */
-    if (SD_PATH[1]) {                           /* ".." : fel */
+    root = lp_isroot();
+    if (!root) {                                /* ".." : fel */
         if (!skip) {
             io_hide();
             strcpy(names[0], "..");
@@ -1918,11 +1923,12 @@ static unsigned char sd_scan_(unsigned char cap)
         if (tot >= skip && nfiles < MAXFILES) {
             io_hide();
             sd_conv(names[nfiles], SD_ENT + 1, 24);
-            strncpy(rawn[nfiles], (char *)SD_ENT + 1, 35);
-            rawn[nfiles][35] = 0;
+            strncpy(rawn[nfiles], (char *)SD_ENT + 1, 63);
+            rawn[nfiles][63] = 0;
             io_show();
             fsize[nfiles] = (SD_ENT[0] & 0x10) ? 0xFFFF : 0;
-            if (nfiles == cap) { strncpy(sd_cand, (char *)SD_ENT + 1, 35); sd_cand[35] = 0; sd_ca = SD_ENT[0]; }
+            if (strlen((char *)SD_ENT + 1) > 63) fsize[nfiles] = 0xFFFD;      /* tul hosszu nev : nem nyithato meg (szurke) */
+            if (nfiles == cap) { strncpy(sd_cand, (char *)SD_ENT + 1, 63); sd_cand[63] = 0; sd_ca = SD_ENT[0]; }
             ++nfiles;
         }
         ++tot;
@@ -1930,7 +1936,7 @@ static unsigned char sd_scan_(unsigned char cap)
         if (cap != 255 && nfiles > cap) { ab = 1; break; }           /* a kijelolt bejegyzes megvan */
     }
     if (ab) sd_abort();
-    if (!SD_PATH[1] && !hf && !ab) {                   /* a gyokerben az /ftp/ (bemountolt FTP-szerverek) nincs a listaban, de belepni lehet */
+    if (root && !hf && !ab) {                   /* a gyokerben az /ftp/ (bemountolt FTP-szerverek) nincs a listaban, de belepni lehet */
         if (tot >= skip && nfiles < MAXFILES) {
             io_hide();
             strcpy(names[nfiles], "ftp");
@@ -1945,19 +1951,88 @@ static unsigned char sd_scan_(unsigned char cap)
     return 1;
 }
 
-/* Bemenet a megtekintesre: "mappa" belepes / ".." kilepes */
+/* ---- A hosszu SD-utvonal (legfeljebb 255 karakter) az I/O alatti RAM-ban (LPATH). Az SD_PATH (64 bajt) a tukre, ha elfer benne
+   (a modul ilyenkor minden muvelet elott magatol belep a mappaba) ; ha nem, mappankent lepunk be (relativ CHANGE_DIR),
+   es az Ultimate munkamappajara tamaszkodunk (SD_PATH ures). ---- */
+#define LPATH    ((char *)0xDBC2)
+#define LPATH_SV ((char *)0xDCC2)
+static void lp_sync(void)
+{
+    unsigned char c, i, j;
+    io_hide();
+    if (strlen(LPATH) <= 63) { strcpy(SD_PATH, LPATH); io_show(); return; }
+    io_show();
+    SD_PATH[0] = '/';
+    SD_PATH[1] = 0;
+    sd_chdir();
+    for (i = 1;;) {
+        io_hide();
+        for (j = 0; (c = (unsigned char)LPATH[i]) != 0 && c != '/'; ++i) { SD_PATH[j] = (char)c; ++j; }     /* (nem SD_PATH[j++] : cc65 hiba) */
+        SD_PATH[j] = 0;
+        if (c) ++i;
+        io_show();
+        if (!j) break;
+        sd_chdir();
+        if (!c) break;
+    }
+    SD_PATH[0] = 0;
+}
+static unsigned char lp_isroot(void)
+{
+    unsigned char r;
+    io_hide();
+    r = LPATH[1] == 0;
+    io_show();
+    return r;
+}
+static void lp_root(void)
+{
+    io_hide();
+    strcpy(LPATH, "/");
+    io_show();
+    lp_sync();
+}
+/* "mappa" belepes (sd_cand) / ".." kilepes */
 static void sd_enter(void)
 {
     char *e;
+    io_hide();
     if (!strcmp(sd_cand, "..")) {
-        e = strrchr(SD_PATH, '/');
-        if (e == SD_PATH) SD_PATH[1] = 0; else if (e) *e = 0;
+        e = strrchr(LPATH, '/');
+        if (e == LPATH) LPATH[1] = 0; else if (e) *e = 0;
     } else {
-        e = SD_PATH + strlen(SD_PATH);
-        if (e - SD_PATH + strlen(sd_cand) > 46) return;
-        if (SD_PATH[1]) *e++ = '/';
+        e = LPATH + strlen(LPATH);
+        if ((unsigned)(e - LPATH) + strlen(sd_cand) > 253) { io_show(); return; }
+        if (LPATH[1]) *e++ = '/';
         strcpy(e, sd_cand);
     }
+    io_show();
+    lp_sync();
+}
+/* A fejlec: az utvonal vege (hosszu utvonalnal ~-vel kezdve). */
+static void lp_tail(char *d)
+{
+    unsigned n;
+    io_hide();
+    n = strlen(LPATH);
+    if (n <= 40) strcpy(d, LPATH);
+    else { d[0] = '~'; strcpy(d + 1, LPATH + n - 39); }
+    io_show();
+}
+/* A rezidens kod (choose, rq_list, indulas) szamara : 0 torles, 1 mentes, 2 visszaallitas, 3 gyoker ha meg nincs, 4 gyoker, 5 gyoker-e. */
+static unsigned char lp_op_(unsigned char op)
+{
+    unsigned char r = 0;
+    io_hide();
+    if (op == 0) LPATH[0] = 0;
+    else if (op == 1) memcpy(LPATH_SV, LPATH, 256);
+    else if (op == 2) memcpy(LPATH, LPATH_SV, 256);
+    else if (op == 5) r = LPATH[1] == 0;
+    else if (op == 3 && LPATH[0]) op = 0;
+    io_show();
+    if (op == 2) lp_sync();
+    else if (op == 3 || op == 4) lp_root();
+    return r;
 }
 
 /* Fajlvalaszto, lemez es SD egyutt. save: formatum-kapcsolok es "Uj..." gomb.
@@ -1977,7 +2052,6 @@ static unsigned char rq_sel_(unsigned char sel)
     if (sd_pk) {
         sd_scan_(sel);
         if (sd_ca & 0x10) { sd_enter(); fpage = 0; return 2; }
-        if (strlen(sd_cand) > 30) return 3;
         sd_conv(buf, (unsigned char *)sd_cand, 16);
     } else {
         io_hide();
@@ -1996,13 +2070,14 @@ static void rq_title_(void)
 static void rq_sizes_(void);
 static unsigned char file_commit_(const char *title, unsigned char save, unsigned char newname);
 /* Lista kirajzolasa utani ujraolvasas (gorgetes / lapozas utan is): beolvas, a tulgorgetest visszaigazitja, az SD-fajlok meretet lekerdezi. */
+static unsigned char lp(unsigned char op) { ovl_load(7); return lp_op_(op); }
 static void rq_list(void)
 {
     if (sd_pk) disk_busy(1);                    /* a C64U lassu lehet : homokora a nyil helyett */
     for (;;) {
         ovl_load(7);
         if (!rq_scan_()) {                      /* az SD-n a konyvtar nem olvashato : a gyokerre, vegul a lemezre esunk vissza */
-            if (strcmp(SD_PATH, "/")) strcpy(SD_PATH, "/");
+            if (!lp(5)) lp(4);
             else { disk_busy(0); message(S_DISKERR, S_NOSD, 0, 0); sd_pk = 0; }
             pk_first = 1;
             continue;
@@ -2032,14 +2107,14 @@ static unsigned char pick_file(const char *title, unsigned char newbtn)
 static unsigned char choose(const char *title, unsigned char save)
 {
     unsigned char r, nw;
-    char *sv = (char *)outbuf + 200;
-    strcpy(sv, SD_PATH);
-    sv[60] = (char)dev;                         /* megszakitasnal az egyseg visszaall */
+    char *sv = (char *)outbuf + 256;
+    lp(1);                                      /* az utvonal mentese (megszakitasnal visszaall) */
+    sv[64] = (char)dev;                         /* megszakitasnal az egyseg visszaall */
     sd_pk = sd_ok && (sd_on || !filename[0]);   /* a dokumentum helye ; uj dokumentum : az SD, ha van */
     pk_fm = filename[0] ? doc_fmt : 1;          /* a dokumentum formatuma ; meg nincs : RTF */
     pk_btn = 1;
     pk_save = save;
-    if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/");     /* elso hasznalat: a gyoker (SD, USB0, ...) ; utana az utoljara hasznalt mappa */
+    if (sd_pk) lp(3);                           /* elso hasznalat: a gyoker (SD, USB0, ...) ; utana az utoljara hasznalt mappa */
     fpage = 0;
     pk_first = 1;
     for (;;) {
@@ -2053,17 +2128,17 @@ static unsigned char choose(const char *title, unsigned char save)
         pk_first = 1;
         if (r >= 245 && r <= 249) {             /* kapcsolo */
             if (r == 249 && !sd_pk) {            /* a lenyomott Disk ujra : a kovetkezo mukodo egyseg (8..11) */
-                sv[62] = (char)dev;
+                sv[65] = (char)dev;
                 for (nw = 0; nw < 3; ++nw) {
                     dev = dev < 11 ? dev + 1 : 8;
                     r = cbm_opendir(1, dev) ? 1 : 0;
                     cbm_closedir(1);                           /* a sikertelen megnyitas utan is : a logikai fajl ne maradjon nyitva */
                     if (!r) break;
                 }
-                if (nw == 3) dev = (unsigned char)sv[62];      /* nincs masik egyseg : marad */
+                if (nw == 3) dev = (unsigned char)sv[65];      /* nincs masik egyseg : marad */
                 r = 249;
             }
-            if (r >= 248) { sd_pk = (r == 248); if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/"); }
+            if (r >= 248) { sd_pk = (r == 248); if (sd_pk) lp(3); }
             else pk_fm = r - 245;
             fpage = 0;
             redraw_all();
@@ -2088,8 +2163,8 @@ static unsigned char choose(const char *title, unsigned char save)
         pk_btn = sd_pk = 0;
         return nw ? 2 : 1;
     }
-    strcpy(SD_PATH, sv);
-    dev = (unsigned char)sv[60];
+    lp(2);
+    dev = (unsigned char)sv[64];
     pk_btn = sd_pk = 0;
     return 0;
 }
@@ -4610,8 +4685,8 @@ static unsigned char ask_text_(const char *title, const char *label, char *buf, 
 
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY7")
-#pragma rodata-name (push, "OVERLAY7")
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
 /* Nev, verzio, keszitok (tobb sor, mint a message()-ben). */
 static void about_(void)
 {
@@ -4701,7 +4776,7 @@ static unsigned char run_menu_(unsigned char m)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m); }
-static void about(void) { ovl_load(7); about_(); }
+static void about(void) { ovl_load(6); about_(); }
 static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
 {
     ovl_load(8);
@@ -5427,6 +5502,7 @@ void main(void)
     led_theme(7);                                       /* module SD (src/sd.s) en $CC00 */
     sd_ok = sd_probe() && !sd_getpath();                /* Ultimate present ET sa cible DOS repond (ancien firmware : pas de SD) */
     SD_PATH[0] = 0;                                     /* le repertoire de depart se choisit au premier usage */
+    lp(0);
 #endif
     /* repere pour les outils de test : adresses du texte et de sa longueur */
     *(unsigned *)0x02AB = (unsigned)text;
