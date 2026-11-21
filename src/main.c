@@ -38,6 +38,7 @@ void blink_cursor(void);
 extern unsigned char col[5], theme_no;
 void set_theme(void);
 void next_theme(void);
+static unsigned char dev = 8;                   /* a lemez egysegszama (8..11) */
 #ifdef REU
 void __fastcall__ led_theme(unsigned char t);
 #endif
@@ -107,6 +108,7 @@ typedef char sd_area_check[1 - 2 * (0xC080 + 3 * (MAXLINES + 2) > 0xC700)];
 typedef unsigned long dpos;             /* position dans le document (24 bits utiles) */
 /* Noms de la boite Ouvrir : sous les E/S, apres le presse-papiers. */
 #define names     ((char (*)[28])(0xD000 + 3 * (MAXLINES + 2) + CLIPMAX))
+#define rawn      ((char (*)[36])((char *)names + 13 * 28))   /* az SD-bejegyzesek nyers neve (a meretlekerdezeshez) */
 /* $0334-$03FB, tampon cassette inutilise : petites chaines. */
 #define diskmsg   ((char *)0x0334)              /* 41 octets */
 #define cmdname   ((char *)0x035D)              /* 24 */
@@ -143,6 +145,10 @@ const unsigned char themes[NTHEMES][5] = {
     { 0xE6, 0x6E, 0x06, COLOR_LIGHTBLUE, COLOR_WHITE }, /* bleu Commodore */
     { 0x70, 0x07, 0x0B, COLOR_BLACK, COLOR_WHITE },     /* jaune sur noir */
 };
+#ifdef REU
+static const unsigned char accent[NTHEMES] = { COLOR_PURPLE, COLOR_PURPLE, COLOR_RED, COLOR_RED };   /* az E betu tintaja a temakhoz */
+static const unsigned char dark_tone[NTHEMES] = { 11, 5, 0, 9 };      /* sotet el / arnyek / csuszka szine temankent */
+#endif
 
 unsigned char text[MAXDOC];               /* exporte pour next_line_asm */
 /* Tampon d'impression : une ligne du mode Texte, ou la sortie d'une passe du
@@ -220,7 +226,7 @@ static void bck_loaded(void);
    petit module de src/sd.s, copie en $CC00 au demarrage. sd_on : le document est sur la SD. */
 unsigned char __fastcall__ sd_open(unsigned char mode);
 unsigned char sd_probe(void), sd_close(void), sd_read(void), sd_write(void), sd_dirbeg(void), sd_dirnext(void);
-unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void), sd_getpath(void);
+unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void), sd_getpath(void), sd_abort(void);
 #define SD_PATH ((char *)0xCB00)                /* repertoire (absolu) */
 #define SD_NAME ((char *)0xCB30)                /* nom du fichier, octets bruts */
 #define SD_PTR  (*(unsigned *)0xCB54)
@@ -234,7 +240,8 @@ unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void)
 #define SD_PE   (*(unsigned char *)0xCB6E)
 static char sd_title[28];                       /* az SD-n levo dokumentum neve a cimsorhoz (megjelenitesre kesz) */
 static char sd_cand[36];                        /* a valasztoban kijelolt SD-nev (a dokumentum neve csak jovahagyas utan valtozik) */
-static unsigned char sd_on, sd_ok, sd_bad, sd_pk, sd_ca, at12;
+static char dlabel[4] = "U08";
+static unsigned char sd_on, sd_ok, sd_bad, sd_pk, sd_ca, at12, pk_first;
 static void sd_conv(char *d, const unsigned char *s, unsigned char n);       /* sd_ca : a kivalasztott bejegyzes attributuma */
 static unsigned char quiet;                     /* pas de dessin (relecture du journal) */
 static dpos suf_len;                    /* octets apres la fenetre, dans le REU */
@@ -252,7 +259,7 @@ static unsigned char sc_st, sc_ok;
 /* JiffyDOS passe au protocole lent des qu'un sprite est actif : on les coupe
    pendant les transferts de fichiers. */
 #ifndef REU
-#define fo_w() cbm_open(2, 8, 2, cmdname)
+#define fo_w() cbm_open(2, dev, 2, cmdname)
 #define fw(b, n) cbm_write(2, b, n)
 #define fc() cbm_close(2)
 #define fr(b, n) cbm_read(2, b, n)
@@ -714,7 +721,7 @@ static void draw_thumb(unsigned ty)
     for (r = 0; r < VISIBLE; ++r) {
         p = (unsigned char *)ROWBASE(TEXT_ROW0 + r) + SBAR_X;
         y = r * 8;
-        for (i = 0; i < 8; ++i, ++y) p[i] = (y >= ty && y < ty + 16) ? 0x7E : 0x18;
+        for (i = 0; i < 8; ++i, ++y) p[i] = (y >= ty && y < ty + 16) ? 0xFF : 0x00;
     }
 }
 
@@ -784,10 +791,13 @@ static void draw_status(void)
     put_text(150, FOOT_ROW, hun_on ? "HUN" : "C64", BOLD);
     put_text(130, FOOT_ROW, overwrite ? "O" : "I", BOLD);
 #endif
-    strcpy(buf, S_FREE " ");
 #ifdef REU
-    ultoa_simple(buf + strlen(buf), suf_end - doclen - win_base - suf_len);
+    {
+        dpos nc = win_base + doclen + suf_len;                              /* kb. karakterszam (a stilusjelek is benne vannak) */
+        strcpy(ultoa_simple(buf, nc), nc > 1 ? S_CHARS : S_CHAR);          /* 0 es 1: char, utana chars */
+    }
 #else
+    strcpy(buf, S_FREE " ");
     utoa_simple(buf + strlen(buf), MAXDOC - doclen);
 #endif
     put_text(314 - text_width(buf, 0), FOOT_ROW, buf, 0);
@@ -806,16 +816,9 @@ static unsigned pg_step, pg_units, pg_acc, pg_x;     /* pg_step = 0 : pas de bar
 
 static void pg_fill(unsigned x0, unsigned x1)
 {
-    unsigned card, base = ROWBASE(FOOT_ROW);
-    unsigned char a, b, mask, y;
-    for (card = x0 & 0xFFF8u; card < x1; card += 8) {
-        a = card < x0 ? (unsigned char)(x0 - card) : 0;
-        b = card + 8 > x1 ? (unsigned char)(x1 - card) : 8;
-        mask = (unsigned char)((0xFF >> a) & (0xFF << (8 - b)));
-        for (y = 1; y < 7; ++y) bm_or(base + card + y, mask);
-    }
+    unsigned char c0 = (unsigned char)(x0 >> 3);
+    color_cells(FOOT_ROW, c0, (unsigned char)(((x1 - 1) >> 3) - c0 + 1), accent[theme_no]);    /* kitoltes : a cellak papirja a hangsulyszin */
 }
-
 static void pg_begin(const char *label, dpos total)
 {
     pg_units = pg_acc = pg_x = 0;
@@ -824,10 +827,7 @@ static void pg_begin(const char *label, dpos total)
     draw_off = 0;
     clear_cells(FOOT_ROW, 0, 320);
     put_text(6, FOOT_ROW, label, 0);
-    hline(FOOT_ROW, PG_X0, 200, 0);
-    hline(FOOT_ROW, PG_X0, 200, 7);
-    vline(FOOT_ROW, PG_X0, 0x80);
-    vline(FOOT_ROW, PG_X0 + 192, 0x01);
+    color_cells(FOOT_ROW, PG_X0 >> 3, 25, dark_tone[theme_no]);         /* a palya : sotet cellak (papir = sotet) */
 }
 
 static void pg_add(unsigned k)
@@ -847,6 +847,7 @@ static void pg_end(void)
 {
     if (!pg_step) return;
     pg_step = 0;
+    color_cells(FOOT_ROW, 0, 40, COL_BAR);
     draw_status();
 }
 #endif
@@ -928,22 +929,25 @@ static void draw_menubar(void)
 #endif
 }
 
-#ifdef REU
-static const unsigned char accent[NTHEMES] = { COLOR_PURPLE, COLOR_PURPLE, COLOR_RED, COLOR_RED };   /* az E betu tintaja a temakhoz */
-#endif
 static void page_colors(void)
 {
     unsigned char r;
-    color_cells(0, 0, 40, COL_BAR);
 #ifdef REU
-    color_cells(0, 38, 1, (unsigned char)((accent[theme_no] << 4) | (COL_BAR & 15)));   /* a PlumE "E" betuje */
+    color_cells(0, 0, 40, (unsigned char)((COL_BAR & 0xF0) | 1));                     /* menusor : vilagos savos tonus */
+    color_cells(0, 38, 1, (unsigned char)((accent[theme_no] << 4) | 1));               /* a PlumE "E" betuje */
+#else
+    color_cells(0, 0, 40, COL_BAR);
 #endif
     color_cells(1, 0, 40, COL_BAR);
     color_cells(FOOT_ROW, 0, 40, COL_BAR);
     for (r = TEXT_ROW0; r < FOOT_ROW; ++r) {
         color_cells(r, 0, 1, COL_MARGIN);
         color_cells(r, 1, 38, COL_PAGE);
+#ifdef REU
+        color_cells(r, 39, 1, (unsigned char)((dark_tone[theme_no] << 4) | (COL_BAR & 15)));   /* gorgetosav : hatterszinu palya, sotet csuszka */
+#else
         color_cells(r, 39, 1, COL_MARGIN);
+#endif
     }
 }
 
@@ -957,6 +961,47 @@ static void redraw_all(void)
     place_cursor();
 }
 
+#ifdef REU
+/* Arnyek-cella: megtartja a hatterszinet (papir), tintaja a sotet ; a bitmap-ja v. */
+/* Egyszinu vekony keretu doboz: row..row+rows-1, x, w ; fillc a belso cellak szine, a keret cellai a sotet tintat kapjak a belso papirjan. */
+static void box(unsigned char row, unsigned char rows, unsigned x, unsigned w, unsigned char fillc)
+{
+    unsigned char c = (unsigned char)(x >> 3), n = (unsigned char)(w >> 3), r, e = (unsigned char)(row + rows);
+    unsigned char dk = (unsigned char)((dark_tone[theme_no] << 4) | (fillc & 15));
+    for (r = row; r < e; ++r) {
+        color_cells(r, c, n, fillc);
+        clear_cells(r, x, w);
+        vline(r, x, 0x80);
+        vline(r, x + w - 8, 0x01);
+        color_cells(r, c, 1, dk);
+        color_cells(r, (unsigned char)(c + n - 1), 1, dk);
+    }
+    color_cells(row, c, n, dk);
+    color_cells((unsigned char)(e - 1), c, n, dk);
+    hline(row, x, w, 0);
+    hline((unsigned char)(e - 1), x, w, 7);
+}
+#define outline_box(row, rows, x, w) box(row, rows, x, w, COL_PAGE)
+static void shade(unsigned char r, unsigned char col, unsigned char v)
+{
+    unsigned char *a = COLORS + r * 40 + col;
+    *a = (unsigned char)((dark_tone[theme_no] << 4) | (*a & 15));
+    bm_fill(ROWBASE(r) + ((unsigned)col << 3), 8, v);
+}
+/* Ablak: egyszinu, zart vekony keret + vekony (2 kepponttos) arnyek jobbra es lent. */
+static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
+{
+    unsigned char r, k, c = (unsigned char)(x >> 3), n = (unsigned char)(w >> 3), e = (unsigned char)(row + rows);
+    cursor_off();
+    box(row, rows, x, w, COL_BAR);
+    for (r = row; r < e; ++r) shade(r, (unsigned char)(c + n), r == row ? 0 : 0xC0);
+    for (k = 0; k <= n; ++k) shade(e, (unsigned char)(c + k), 0);          /* alsó arnyek: a keret alatti sor cellainak elso ket kepponttsora */
+    hline(e, x, w, 0);
+    hline(e, x, w, 1);
+    bm_or(ROWBASE(e) + x + w, 0xC0);                                      /* a sarok-cellaban csak 2 kepponttnyi */
+    bm_or(ROWBASE(e) + x + w + 1, 0xC0);
+}
+#else
 static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
 {
     unsigned char r, e = (unsigned char)(row + rows);
@@ -980,6 +1025,8 @@ static void panel(unsigned char row, unsigned char rows, unsigned x, unsigned w)
         bm_fill(a + w, 2, 0xC0);                  /* l'ombre du bas s'arrete avec celle de droite */
     }
 }
+
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Souris et clavier                                                   */
@@ -1109,7 +1156,11 @@ static unsigned char read_key(void)
 /* ------------------------------------------------------------------ */
 /* Boites de dialogue                                                  */
 
+#ifdef REU
+#define MAXFILES 5                       /* a valasztoban 5 bejegyzes fer egy oldalra (fejlec-sor + 5) */
+#else
 #define MAXFILES 13
+#endif
 #define DLG_ROW  7
 #define DLG_X    40
 #define DLG_W    240
@@ -1117,6 +1168,10 @@ static unsigned char read_key(void)
 
 static void dialog(unsigned char rows, const char *title)
 {
+#ifdef REU
+    panel(DLG_ROW, rows, DLG_X, DLG_W);
+    if (title) put_text(DLG_X + 16, DLG_ROW + 1, title, BOLD);
+#else
     unsigned char y;
     unsigned w;
     panel(DLG_ROW, rows, DLG_X, DLG_W);
@@ -1126,8 +1181,40 @@ static void dialog(unsigned char rows, const char *title)
         clear_cells(DLG_ROW, DLG_X + (DLG_W - w) / 2, w);
         put_text(DLG_X + (DLG_W - w) / 2 + 4, DLG_ROW, title, BOLD);
     }
+#endif
 }
 
+#ifdef REU
+/* Gomb (3 sor: row-1, row, row+1): vilagos felso/bal es sotet also/jobb vekony vonal, atlos (45 fokos) sarok jobb felul es bal alul. A lenyomott gomb
+   ugyanazt a hatterszint kapja, csak a vonalai fordulnak meg. A cellak ket szinuek: a szoveges sor szeli cellai a vonal szinet viselik. */
+static void diag_cell(unsigned char r, unsigned x)
+{
+    unsigned char k, *p = (unsigned char *)ROWBASE(r) + x;
+    for (k = 0; k < 8; ++k) p[k] = (unsigned char)(0x80 >> k);
+}
+static void button_w(unsigned x, unsigned char row, unsigned w, const char *label, unsigned char pressed)
+{
+    unsigned char c = (unsigned char)(x >> 3), n = (unsigned char)(w >> 3), i, t, b, f = COL_BAR & 15, st = w == BTN_W ? BOLD : 0;
+    t = pressed ? dark_tone[theme_no] : 1;
+    b = pressed ? 1 : dark_tone[theme_no];
+    for (i = 0; i < 3; ++i) clear_cells((unsigned char)(row - 1 + i), x, w);
+    color_cells((unsigned char)(row - 1), c, n, (unsigned char)((t << 4) | f));
+    color_cells((unsigned char)(row + 1), c, n, (unsigned char)((b << 4) | f));
+    color_cells(row, c, n, COL_BAR);
+    color_cells(row, c, 1, (unsigned char)((t << 4) | f));
+    color_cells(row, (unsigned char)(c + n - 1), 1, (unsigned char)((b << 4) | f));
+    hline((unsigned char)(row - 1), x, w - 8, 0);                         /* felso vonal es bal el */
+    vline((unsigned char)(row - 1), x, 0x80);
+    diag_cell((unsigned char)(row - 1), x + w - 8);                       /* jobb felso sarok */
+    vline(row, x, 0x80);                                                  /* szoveges sor: bal / jobb el */
+    vline(row, x + w - 8, 0x01);
+    diag_cell((unsigned char)(row + 1), x);                               /* bal also sarok */
+    hline((unsigned char)(row + 1), x + 8, w - 8, 7);                     /* also vonal es jobb el */
+    vline((unsigned char)(row + 1), x + w - 8, 0x01);
+    put_text(x + (w - text_width(label, st)) / 2 + pressed, row, label, st);
+}
+static void button(unsigned x, unsigned char row, const char *label) { button_w(x, row, BTN_W, label, 0); }
+#else
 static void button(unsigned x, unsigned char row, const char *label)
 {
     unsigned a = ROWBASE(row) + x;
@@ -1141,6 +1228,8 @@ static void button(unsigned x, unsigned char row, const char *label)
     bm_or(a + 320 + BTN_W - 8, 0xF0);
     put_text(x + (BTN_W - text_width(label, BOLD)) / 2, row, label, BOLD);
 }
+
+#endif
 
 static unsigned char on_button(unsigned x, unsigned char row)
 {
@@ -1158,21 +1247,38 @@ static void dialog_close(void)
 
 static unsigned char message(const char *title, const char *line1, const char *line2, unsigned char cancel)
 {
+#ifdef REU
+#define MSG_B 7                                 /* a gombok kozepso sora */
+    dialog(10, title);
+    if (line1) put_text(DLG_X + 16, DLG_ROW + 3, line1, 0);
+    if (line2) put_text(DLG_X + 16, DLG_ROW + 4, line2, 0);
+#else
+#define MSG_B 5
     dialog(8, title);
     if (line1) put_text(DLG_X + 16, DLG_ROW + 2, line1, 0);
     if (line2) put_text(DLG_X + 16, DLG_ROW + 3, line2, 0);
-    button(BTN_OK_X, DLG_ROW + 5, S_OK);
-    if (cancel) button(BTN_CANCEL_X, DLG_ROW + 5, S_CANCEL);
+#endif
+    button(BTN_OK_X, DLG_ROW + MSG_B, S_OK);
+    if (cancel) button(BTN_CANCEL_X, DLG_ROW + MSG_B, S_CANCEL);
     for (;;) {
         poll_mouse();
         key = read_key();
-        if (key == CR || (key == 3 && !cancel) || on_button(BTN_OK_X, DLG_ROW + 5)) { dialog_close(); return 1; }
-        if (cancel && (key == 3 || on_button(BTN_CANCEL_X, DLG_ROW + 5))) { dialog_close(); return 0; }
+        if (key == CR || (key == 3 && !cancel) || on_button(BTN_OK_X, DLG_ROW + MSG_B)) { dialog_close(); return 1; }
+        if (cancel && (key == 3 || on_button(BTN_CANCEL_X, DLG_ROW + MSG_B))) { dialog_close(); return 0; }
     }
 }
 
 static unsigned char translate(unsigned char k);
+#ifdef REU
+static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii);
+#endif
 
+#ifndef REU
+#ifdef REU
+#define AT_B 9                                  /* a gombok kozepso sora */
+#else
+#define AT_B 5
+#endif
 static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max,
                               unsigned char petscii)
 {
@@ -1180,22 +1286,36 @@ static unsigned char ask_text(const char *title, const char *label, char *buf, u
     unsigned char len = (unsigned char)strlen(buf), c, first = 1;
     for (;;) {
         if (first) {
+#ifdef REU
+            dialog(12, title);
+            put_text(DLG_X + 16, DLG_ROW + 3, label, 0);
+            outline_box(DLG_ROW + 4, 3, DLG_X + 16, DLG_W - 32);
+#else
             dialog(8, title);
             put_text(DLG_X + 16, DLG_ROW + 2, label, 0);
-            button(BTN_OK_X, DLG_ROW + 5, S_OK);
-            button(BTN_CANCEL_X, DLG_ROW + 5, S_CANCEL);
+#endif
+            button(BTN_OK_X, DLG_ROW + AT_B, S_OK);
+            button(BTN_CANCEL_X, DLG_ROW + AT_B, S_CANCEL);
             first = 0;
         }
+#ifdef REU
+        clear_cells(DLG_ROW + 5, DLG_X + 24, DLG_W - 48);
+#else
         clear_cells(DLG_ROW + 3, DLG_X + 8, DLG_W - 16);
         hline(DLG_ROW + 3, DLG_X + 16, DLG_W - 32, 7);
+#endif
         if (petscii) petscii_to_text(shown, buf); else strcpy(shown, buf);
         strcat(shown, "|");
+#ifdef REU
+        put_text(DLG_X + 24, DLG_ROW + 5, shown, BOLD);
+#else
         put_text(DLG_X + 16, DLG_ROW + 3, shown, BOLD);
+#endif
         do {
             poll_mouse();
             key = read_key();
-            if (on_button(BTN_OK_X, DLG_ROW + 5)) key = CR;
-            if (on_button(BTN_CANCEL_X, DLG_ROW + 5)) key = 3;
+            if (on_button(BTN_OK_X, DLG_ROW + AT_B)) key = CR;
+            if (on_button(BTN_CANCEL_X, DLG_ROW + AT_B)) key = 3;
         } while (!key);
         if (key == CR && len) { dialog_close(); return 1; }
         if (key == 3) { dialog_close(); return 0; }
@@ -1215,6 +1335,7 @@ static unsigned char ask_text(const char *title, const char *label, char *buf, u
         buf[len] = 0;
     }
 }
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Modifications du texte                                              */
@@ -1410,12 +1531,12 @@ static unsigned char fo_r(const char *name)     /* ouvre en lecture ; name : nom
     if (sd_on) return sdk(sd_open(1));
     strcpy(cmdname, name);
     strcat(cmdname, ",S,R");
-    return cbm_open(2, 8, 2, cmdname);
+    return cbm_open(2, dev, 2, cmdname);
 }
 static unsigned char fo_w(void)                 /* ouvre en ecriture (cmdname prepare par fit_check) */
 {
     if (sd_on) return sdk(sd_open(0x0A));            /* FA_WRITE | FA_CREATE_ALWAYS : felulirja (0x04, FA_CREATE_NEW, letezo fajlnal hibat ad) */
-    return cbm_open(2, 8, 2, cmdname);
+    return cbm_open(2, dev, 2, cmdname);
 }
 static int fr(void *b, unsigned n)
 {
@@ -1466,7 +1587,7 @@ static unsigned char disk_status(void)
 #ifdef REU
     if (sd_on) { n = sd_bad; sd_bad = 0; strcpy(diskmsg, "SD ERROR"); return n; }
 #endif
-    if (cbm_open(15, 8, 15, "")) return 99;
+    if (cbm_open(15, dev, 15, "")) return 99;
     r = cbm_read(15, diskmsg, 40);
     cbm_close(15);
     if (r <= 0) return 99;
@@ -1503,17 +1624,19 @@ static unsigned char is_bck(const char *n)
     return l > 4 && n[l - 4] == '.' && (n[l - 3] & 0x5F) == 0x42 && (n[l - 2] & 0x5F) == 0x43 && (n[l - 1] & 0x5F) == 0x4B;
 }
 static unsigned blk_free, blk_old, fsize[MAXFILES];
-static unsigned char nfiles, fpage, fmore;
+static unsigned char nfiles, fmore;
+static unsigned fpage;                          /* a lista elejen atugrott bejegyzesek szama (gorgo: 1-gyel, nyil: egy oldallal) */
 
 /* Page fpage de MAXFILES noms ; fmore : il y en a d'autres apres. */
 static void scan_dir(const char *find)
 {
     struct cbm_dirent e;
-    unsigned char r, tot = 0, skip = (unsigned char)(fpage * MAXFILES);
+    unsigned char r;
+    unsigned tot = 0, skip = fpage;
     nfiles = 0;
     blk_free = 0xFFFF;
     blk_old = 0;
-    if (cbm_opendir(1, 8)) return;
+    if (cbm_opendir(1, dev)) return;
     for (;;) {
         r = cbm_readdir(1, &e);
         if (r == 2) { blk_free = e.size; break; }
@@ -1531,81 +1654,87 @@ static void scan_dir(const char *find)
 #pragma code-name (push, "OVERLAY7")
 #pragma rodata-name (push, "OVERLAY7")
 static unsigned char sd_scan_(unsigned char cap);
+static unsigned char fgrey(unsigned char i);
 /* Liste des fichiers en deux colonnes + blocs libres. Renvoie l'index choisi,
    254 pour "Nouveau..." (si newbtn), 255 si annule. */
+#define RQ_X 16                         /* fajlvalaszto: x, szelesseg (288 kepont), 3. sortol a 20 soros keret */
+#define RQ_W 288
 static const unsigned char arrow_up[8] = { 0x18, 0x3C, 0x7E, 0x18, 0x18, 0x18, 0x18, 0x18 };
 
 static void arrow_draw(unsigned char row, unsigned char up)
 {
     unsigned char k;
-    for (k = 0; k < 8; ++k) bm_or(ROWBASE(row) + DLG_X + DLG_W - 24 + k, arrow_up[up ? k : 7 - k]);
+    for (k = 0; k < 8; ++k) bm_or(ROWBASE(row) + RQ_X + RQ_W - 24 + k, arrow_up[up ? k : 7 - k]);
 }
 
 static unsigned char pick_file_(const char *title, unsigned char newbtn)
 {
-    unsigned char i, rows, by, sel, last;
-    unsigned bx;
+    unsigned char i, sel;
     char *shown = inputbuf, *b = (char *)outbuf;
-    for (;;) {
-        rows = (fpage || fmore) ? MAXFILES : nfiles;
-        by = (unsigned char)(9 + rows);
-        last = (unsigned char)(6 + rows);
+    {
         sel = 255;
-        panel(4, (unsigned char)(rows + 7), DLG_X, DLG_W);
-        put_text(DLG_X + 16, 5, title, BOLD);
-        if (pk_btn) {                           /* hely (Disk / SD) es formatum (PLM RTF TXT) kapcsolok a 6. sorban */
-            if (sd_ok) {
-                put_text(56, 6, "Disk", BOLD);
-                put_text(96, 6, "C64U", BOLD);
-                bx = sd_pk ? 94 : 54;
-                xor_span(6, bx, bx + 36);
+        if (pk_first) {                         /* a keret, a cim es a gombok csak egyszer (gorgetes / lapozas utan csak a lista) */
+            pk_first = 0;
+            panel(3, 20, RQ_X, RQ_W);
+            put_text(RQ_X + 16, 4, title, BOLD);
+            if (pk_btn && sd_ok) {              /* hely: Disk / C64U (kulon gombok, a kivalasztott lenyomott) */
+                button_w(24, 7, 48, dlabel, !sd_pk);
+                button_w(80, 7, 48, "C64U", sd_pk);
             }
-            if (pk_save) {
-                put_text(170, 6, "PLM", BOLD);
-                put_text(210, 6, "RTF", BOLD);
-                put_text(250, 6, "TXT", BOLD);
-                bx = 166 + 40 * pk_fm;
-                xor_span(6, bx, bx + 32);
+            if (pk_btn && pk_save) {            /* formatum: PLM RTF TXT */
+                button_w(136, 7, 48, "PLM", pk_fm == 0);
+                button_w(192, 7, 48, "RTF", pk_fm == 1);
+                button_w(248, 7, 48, "TXT", pk_fm == 2);
             }
+            button(RQ_X + RQ_W - 24 - BTN_W, 20, S_CANCEL);
+            if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
         }
-        for (i = 0; i < nfiles; ++i) {          /* blocs (aligne a droite) puis le nom */
-            if (fsize[i] == 0xFFFF) strcpy(b, "DIR"); else utoa_simple(b, fsize[i]);
-            put_text(DLG_X + 48 - text_width(b, 0), (unsigned char)(7 + i), b, 0);
+        outline_box(10, 8, 24, 272);            /* a lista: fejlec-sor (utvonal / szabad blokk) + a bejegyzesek */
+        if (sd_pk) strcpy(b, SD_PATH); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
+        put_text(32, 11, b, BOLD);
+        for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
+            if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
+            else { b = utoa_simple(b, fsize[i] & 0x3FFF); if (sd_pk) *b++ = "KMG"[fsize[i] >> 14]; *b = 0; b = (char *)outbuf; }
+            put_text(64 - text_width(b, 0), (unsigned char)(12 + i), b, 0);
             io_hide();
             strcpy(shown, names[i]);
             io_show();
             petscii_to_text(shown, shown);
-            put_text(DLG_X + 60, (unsigned char)(7 + i), shown, 0);
+            put_text(72, (unsigned char)(12 + i), shown, 0);
+            if (fgrey(i)) color_cells((unsigned char)(12 + i), 4, 31, (unsigned char)((dark_tone[theme_no] << 4) | (COL_PAGE & 15)));   /* szurke: nem valaszthato */
         }
-        if (sd_pk) strcpy(b, SD_PATH); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
-        put_text(DLG_X + 16, (unsigned char)(7 + rows), b, 0);
-        button(BTN_CANCEL_X, by, S_CANCEL);
-        if (newbtn) button(BTN_OK_X, by, S_NEWFILE);
-        if (fpage) arrow_draw(7, 1);
-        if (fmore) arrow_draw(last, 0);
+        if (fpage) arrow_draw(12, 1);
+        if (fmore) arrow_draw(16, 0);
         while (sel == 255) {
             poll_mouse();
             key = read_key();
-            if (key == 3 || on_button(BTN_CANCEL_X, by)) break;
-            if (newbtn && (key == CR || on_button(BTN_OK_X, by))) sel = 254;
-            if (pk_btn && clicked && mouse_y / 8 == 6) {
-                if (sd_ok && mouse_x >= 52 && mouse_x < 92) sel = 249;
-                else if (sd_ok && mouse_x >= 92 && mouse_x < 134) sel = 248;
-                else if (pk_save && mouse_x >= 164 && mouse_x < 204) sel = 245;
-                else if (pk_save && mouse_x >= 204 && mouse_x < 244) sel = 246;
-                else if (pk_save && mouse_x >= 244 && mouse_x < 280) sel = 247;
+            if (key == 3 || on_button(RQ_X + RQ_W - 24 - BTN_W, 20)) break;
+            if (newbtn && (key == CR || on_button(RQ_X + 24, 20))) sel = 254;
+            if (pk_btn && clicked && mouse_y / 8 >= 6 && mouse_y / 8 <= 8) {
+                if (sd_ok && mouse_x >= 24 && mouse_x < 72) sel = 249;
+                else if (sd_ok && mouse_x >= 80 && mouse_x < 128) sel = 248;
+                else if (pk_save && mouse_x >= 136 && mouse_x < 184) sel = 245;
+                else if (pk_save && mouse_x >= 192 && mouse_x < 240) sel = 246;
+                else if (pk_save && mouse_x >= 248 && mouse_x < 296) sel = 247;
             }
-            if (clicked && mouse_y / 8 >= 7 && mouse_y / 8 <= last) {
-                i = (unsigned char)(mouse_y / 8 - 7);
-                if (mouse_x >= DLG_X + DLG_W - 32 && (i == 0 || i == rows - 1) && (fpage || fmore)) {
+            if (clicked && mouse_y / 8 >= 12 && mouse_y / 8 <= 16) {
+                i = (unsigned char)(mouse_y / 8 - 12);
+                if (mouse_x >= RQ_X + RQ_W - 32 && (i == 0 || i == MAXFILES - 1) && (fpage || fmore)) {
                     key = i ? 0x11 : 0x91;      /* fleche cliquee : page suivante / precedente */
-                } else if (i < nfiles) sel = i;
+                } else if (i < nfiles && !fgrey(i)) sel = i;
             }
             if ((key == 0x11 && fmore) || (key == 0x91 && fpage)) { sel = 253; }
+            if (wheel) {                        /* egergorgo: a lista egy bejegyzesenkent (gyors forgatasra tobbel) mozog */
+                if (wheel == 4) fpage = fpage > wheel_n ? fpage - wheel_n : 0;
+                else if (fmore) fpage += wheel_n;
+                wheel = wheel_n = 0;
+                POKE(198, 0);                   /* a gorgo impulzusai billentyunek latszanak : a puffer urites */
+                joy_hold = 6;
+                sel = 252;
+            }
         }
-        if (sel != 253) return sel;
-        fpage = (unsigned char)(fpage + (key == 0x11 ? 1 : -1));
-        if (sd_pk) sd_scan_(255); else scan_dir(0);
+        if (sel == 253) fpage = key == 0x11 ? fpage + MAXFILES : (fpage > MAXFILES ? fpage - MAXFILES : 0);
+        return sel;                             /* 252 / 253 : a hivo ujraolvassa a listat */
     }
 }
 
@@ -1631,13 +1760,21 @@ static void sd_conv(char *d, const unsigned char *s, unsigned char n)
     strcpy(d + h + 1, sd_tmp + i - t);
 }
 
+/* A 15 M-nel nagyobb SD-fajl nem fer a dokumentumba: szurke, nem valaszthato. */
+static unsigned char fgrey(unsigned char i)
+{
+    unsigned f = fsize[i];
+    return sd_pk && f != 0xFFFF && ((f >> 14) >= 2 || ((f >> 14) == 1 && (f & 0x3FFF) > 15));
+}
+
 /* A fpage. oldal: names[] / fsize[] (0xFFFF: konyvtar). cap: ennek az indexnek a nyers neve SD_NAME-be, attributuma SD_ATT-be.
    Vissza: 0, ha a konyvtar nem olvashato. */
 static unsigned char sd_scan_(unsigned char cap)
 {
-    unsigned char tot = 0, skip = (unsigned char)(fpage * MAXFILES);
-    unsigned char r, hf = 0;
+    unsigned tot = 0, skip = fpage;
+    unsigned char r, hf = 0, ab = 0;
     nfiles = 0;
+    fmore = 0;
     r = sd_dirbeg();
     if (r > 1) return 0;                        /* 1 : ures konyvtar (01,DIRECTORY EMPTY) */
     if (SD_PATH[1]) {                           /* ".." : fel */
@@ -1657,14 +1794,19 @@ static unsigned char sd_scan_(unsigned char cap)
         if (tot >= skip && nfiles < MAXFILES) {
             io_hide();
             sd_conv(names[nfiles], SD_ENT + 1, 24);
+            strncpy(rawn[nfiles], (char *)SD_ENT + 1, 35);
+            rawn[nfiles][35] = 0;
             io_show();
             fsize[nfiles] = (SD_ENT[0] & 0x10) ? 0xFFFF : 0;
             if (nfiles == cap) { strncpy(sd_cand, (char *)SD_ENT + 1, 35); sd_cand[35] = 0; sd_ca = SD_ENT[0]; }
             ++nfiles;
         }
         ++tot;
+        if (tot > skip + MAXFILES) { fmore = ab = 1; break; }        /* van meg az oldal utan : a tobbit nem olvassuk */
+        if (cap != 255 && nfiles > cap) { ab = 1; break; }           /* a kijelolt bejegyzes megvan */
     }
-    if (!SD_PATH[1] && !hf) {                   /* a gyokerben az /ftp/ (bemountolt FTP-szerverek) nincs a listaban, de belepni lehet */
+    if (ab) sd_abort();
+    if (!SD_PATH[1] && !hf && !ab) {                   /* a gyokerben az /ftp/ (bemountolt FTP-szerverek) nincs a listaban, de belepni lehet */
         if (tot >= skip && nfiles < MAXFILES) {
             io_hide();
             strcpy(names[nfiles], "ftp");
@@ -1675,7 +1817,7 @@ static unsigned char sd_scan_(unsigned char cap)
         }
         ++tot;
     }
-    fmore = tot > skip + nfiles;
+    if (!ab) fmore = tot > skip + nfiles;
     return 1;
 }
 
@@ -1697,131 +1839,135 @@ static void sd_enter(void)
 /* Fajlvalaszto, lemez es SD egyutt. save: formatum-kapcsolok es "Uj..." gomb.
    Vissza: 0 megszakitva (az SD utvonal visszaall), 1 meglevo fajl, 2 uj nev. Eredmeny: sd_sel (hely), fmt_sel (formatum),
    filename (megjeleno nev, PETSCII), SD-n SD_NAME (nyers nev). */
-static const char fext[3][4] = { "PLM", "RTF", "TXT" };
-/* Letezik-e az sd_cand nevu fajl az aktualis SD-mappaban ? (a teljes listat vegigolvassa) */
-static unsigned char sd_exists(void)
+/* A fajlvalaszto lepesei (a vezerlest a programban levo choose() vegzi, mert a valaszto es a jovahagyas kulon overlayekben van). */
+static unsigned char rq_scan_(void)
 {
-    unsigned char f = 0;
-    if (sd_dirbeg() == 0)
-        while (!sd_dirnext()) if (!stricmp((char *)SD_ENT + 1, sd_cand)) f = 1;
-    return f;
+    if (sd_pk) return sd_scan_(255);
+    scan_dir(0);
+    return 1;
 }
-static unsigned char file_choose_(const char *title, unsigned char save)
+/* Egy bejegyzes kivalasztasa. Vissza: 1 fajl (a megjeleno nev az outbuf+64-ben), 2 mappa (belepett), 3 tul hosszu nev. */
+static unsigned char rq_sel_(unsigned char sel)
 {
-    unsigned char sel, i, c, ex;
-    char *e;
-    char *sv = (char *)outbuf + 200;
     char *buf = (char *)outbuf + 64;
+    if (sd_pk) {
+        sd_scan_(sel);
+        if (sd_ca & 0x10) { sd_enter(); fpage = 0; return 2; }
+        if (strlen(sd_cand) > 30) return 3;
+        sd_conv(buf, (unsigned char *)sd_cand, 16);
+    } else {
+        io_hide();
+        strcpy(buf, names[sel]);
+        io_show();
+    }
+    return 1;
+}
+static void rq_title_(void)
+{
+    sd_conv(sd_title, (unsigned char *)SD_NAME, 26);
+    petscii_to_text(sd_title, sd_title);
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void rq_sizes_(void);
+static unsigned char file_commit_(const char *title, unsigned char save, unsigned char newname);
+/* Lista kirajzolasa utani ujraolvasas (gorgetes / lapozas utan is): beolvas, a tulgorgetest visszaigazitja, az SD-fajlok meretet lekerdezi. */
+static void rq_list(void)
+{
+    for (;;) {
+        ovl_load(7);
+        if (!rq_scan_()) {                      /* az SD-n a konyvtar nem olvashato : a gyokerre, vegul a lemezre esunk vissza */
+            if (strcmp(SD_PATH, "/")) strcpy(SD_PATH, "/");
+            else { message(S_DISKERR, S_NOSD, 0, 0); sd_pk = 0; }
+            pk_first = 1;
+            continue;
+        }
+        if (nfiles < MAXFILES && fpage) {       /* tulgorgetve : az utolso teljes oldal */
+            fpage = fpage + nfiles >= MAXFILES ? fpage + nfiles - MAXFILES : 0;
+            continue;
+        }
+        break;
+    }
+    if (sd_pk) { ovl_load(8); rq_sizes_(); }
+}
+/* A lemezes torles-valaszto (free_space): csak lemez, meretlekeres nelkul. */
+static unsigned char pick_file(const char *title, unsigned char newbtn)
+{
+    unsigned char r;
+    pk_first = 1;
+    for (;;) {
+        ovl_load(7);
+        r = pick_file_(title, newbtn);
+        if (r != 252 && r != 253) return r;
+        scan_dir(0);
+    }
+}
+/* A fajlvalaszto (Open / Save as): az allapotgep. Vissza: 0 megszakitva, 1 meglevo fajl, 2 uj nev. */
+static unsigned char choose(const char *title, unsigned char save)
+{
+    unsigned char r, nw;
+    char *sv = (char *)outbuf + 200;
     strcpy(sv, SD_PATH);
+    sv[60] = (char)dev;                         /* megszakitasnal az egyseg visszaall */
     sd_pk = sd_ok && (sd_on || !filename[0]);   /* a dokumentum helye ; uj dokumentum : az SD, ha van */
     pk_fm = filename[0] ? doc_fmt : 1;          /* a dokumentum formatuma ; meg nincs : RTF */
     pk_btn = 1;
     pk_save = save;
     if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/");     /* elso hasznalat: a gyoker (SD, USB0, ...) ; utana az utoljara hasznalt mappa */
     fpage = 0;
+    pk_first = 1;
     for (;;) {
-        if (sd_pk) {
-            if (!sd_scan_(255)) {
-                if (strcmp(SD_PATH, "/")) { strcpy(SD_PATH, "/"); continue; }
-                message(S_DISKERR, S_NOSD, 0, 0);
-                sd_pk = 0;
-                continue;
+        dlabel[1] = (char)('0' + dev / 10);           /* "U08" .. "U11" */
+        dlabel[2] = (char)('0' + dev % 10);
+        rq_list();
+        ovl_load(7);
+        r = pick_file_(title, save);
+        if (r == 252 || r == 253) continue;     /* gorgo / lapozas : ujraolvasas, csak a lista rajzolodik ujra */
+        if (r == 255) break;
+        pk_first = 1;
+        if (r >= 245 && r <= 249) {             /* kapcsolo */
+            if (r == 249 && !sd_pk) {            /* a lenyomott Disk ujra : a kovetkezo mukodo egyseg (8..11) */
+                sv[62] = (char)dev;
+                for (nw = 0; nw < 3; ++nw) {
+                    dev = dev < 11 ? dev + 1 : 8;
+                    r = cbm_opendir(1, dev) ? 1 : 0;
+                    cbm_closedir(1);                           /* a sikertelen megnyitas utan is : a logikai fajl ne maradjon nyitva */
+                    if (!r) break;
+                }
+                if (nw == 3) dev = (unsigned char)sv[62];      /* nincs masik egyseg : marad */
+                r = 249;
             }
-        } else scan_dir(0);
-        sel = pick_file_(title, save);
-        if (sel == 255) break;
-        if (sel >= 245 && sel <= 249) {         /* kapcsolo */
-            if (sel >= 248) { sd_pk = (sel == 248); if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/"); }
-            else pk_fm = sel - 245;
+            if (r >= 248) { sd_pk = (r == 248); if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/"); }
+            else pk_fm = r - 245;
             fpage = 0;
             redraw_all();
             continue;
         }
-        ex = 1;                                 /* ex: a fajl mar letezik */
-        if (sel == 254) {                       /* uj nev */
-            buf[0] = 0;
+        nw = r == 254;
+        if (nw) {                               /* uj nev */
+            ((char *)outbuf)[64] = 0;
             at12 = !sd_pk;
-            i = ask_text(title, S_FILENAME, buf, sd_pk ? 24 : 16, 1);
+            r = ask_text(title, S_FILENAME, (char *)outbuf + 64, sd_pk ? 24 : 16, 1);
             at12 = 0;
-            if (!i) break;
-            e = strrchr(buf, '.');                              /* mindig van kiterjesztes : ha nincs, a formatumae */
-            if (!e) { strcat(buf, "."); strcat(buf, fext[pk_fm]); }
-            else if (!e[1]) strcat(buf, fext[pk_fm]);
-            if (sd_pk) {
-                for (i = 0; (c = (unsigned char)buf[i]) != 0; ++i) {
-                    if (c >= 0xC1 && c <= 0xDA) c -= 0x80;
-                    else if (c >= 0x41 && c <= 0x5A) c += 0x20;
-                    else if (c >= 0x80) c = '_';
-                    sd_cand[i] = (char)c;
-                }
-                sd_cand[i] = 0;
-                ex = sd_exists();
-            } else {
-                scan_dir(buf);
-                ex = blk_old != 0;
-            }
-            sel = 2;
-        } else if (sd_pk) {
-            sd_scan_(sel);
-            if (sd_ca & 0x10) { sd_enter(); fpage = 0; redraw_all(); continue; }     /* mappa : belepes */
-            if (strlen(sd_cand) > 30) { message(title, S_SDLONG, 0, 0); continue; }
-            sd_conv(buf, (unsigned char *)sd_cand, 16);
-            sel = 1;
+            if (!r) continue;                   /* megszakitva : vissza a listahoz */
         } else {
-            io_hide();
-            strcpy(buf, names[sel]);
-            io_show();
-            sel = 1;
+            ovl_load(7);
+            r = rq_sel_(r);
+            if (r == 2) { redraw_all(); continue; }                            /* mappa : belepes */
+            if (r == 3) { message(title, S_SDLONG, 0, 0); continue; }
         }
-        if (save && ex && !message(title, S_EXISTS, S_REPLACE, 1)) continue;      /* felulirasi megerosites */
-        if (save && pk_fm == 2 && has_fmt()                                       /* szoveg: a formazas elvesz */
-            && !message(S_SAVETXT, S_TXTLOSS, S_TXTASK, 1)) continue;
-        strncpy(filename, buf, 16);             /* jovahagyva : a dokumentum uj neve (lemezen 16 jegyu ; SD-n a cimsor a SD_NAME-bol rajzol) */
-        filename[16] = 0;
-        if (sd_pk) {
-            strcpy(SD_NAME, sd_cand);
-            sd_conv(sd_title, (unsigned char *)SD_NAME, 26);
-            petscii_to_text(sd_title, sd_title);
-        }
-        sd_sel = sd_pk;
-        fmt_sel = pk_fm;
+        ovl_load(8);
+        if (!file_commit_(title, save, nw)) continue;
+        if (sd_pk) { ovl_load(7); rq_title_(); }
         pk_btn = sd_pk = 0;
-        return sel;
+        return nw ? 2 : 1;
     }
     strcpy(SD_PATH, sv);
+    dev = (unsigned char)sv[60];
     pk_btn = sd_pk = 0;
     return 0;
 }
-#pragma rodata-name (pop)
-#pragma code-name (pop)
-static unsigned char pick_file(const char *title, unsigned char newbtn) { ovl_load(7); return pick_file_(title, newbtn); }
-static unsigned char choose(const char *title, unsigned char save) { ovl_load(7); return file_choose_(title, save); }
 
-/* Nom de fichier : choix dans la liste (ecrase) ou saisie ("Nouveau..."). */
-static unsigned char ask_name(const char *title, char *dest)
-{
-    char *buf = (char *)outbuf + 64;          /* libre hors impression */
-    unsigned char sel = 254;
-    fpage = 0;
-    scan_dir(0);
-    if (nfiles) {
-        sel = pick_file(title, 1);
-        if (sel == 255) { redraw_all(); return 0; }
-        if (sel < 254) {
-            io_hide();
-            strcpy(dest, names[sel]);
-            io_show();
-            redraw_all();
-            return 1;
-        }
-    }
-    if (sel == 254 && nfiles) redraw_all();
-    strcpy(buf, dest);
-    if (!ask_text(title, S_FILENAME, buf, 16, 1)) return 0;
-    strcpy(dest, buf);
-    return 1;
-}
-#define ask_filename() ask_name(S_SAVEAS, filename)
 
 /* Pas assez de place : on laisse effacer un fichier du disque, ou changer de disque (Annuler dans la
    liste), puis fit_check recompte. Sauver ne doit jamais devenir impossible. */
@@ -1841,7 +1987,7 @@ static void free_space(void)
             if (message(S_DELPICK, (char *)outbuf + 100, S_DELQ, 1)) {
                 strcpy(cmdname, "S0:");
                 strcat(cmdname, n);
-                cbm_open(15, 8, 15, cmdname);
+                cbm_open(15, dev, 15, cmdname);
                 cbm_close(15);
             }
         }
@@ -1867,7 +2013,7 @@ static unsigned char fit_check(dpos bytes, const char *name)
             if (!message(S_SAVEAS, S_REPL1, S_REPL2, 1)) return 0;
             strcpy(cmdname, "S0:");
             strcat(cmdname, name);
-            cbm_open(15, 8, 15, cmdname);
+            cbm_open(15, dev, 15, cmdname);
             cbm_close(15);
             strcpy(cmdname, "0:");
             break;
@@ -1920,7 +2066,9 @@ static void save_doc(void)
 #ifdef RTF
     if (doc_fmt && filename[0]) SD_R(doc_fmt == 1 ? 1 : 3);   /* RTF / texte : meme format, meme endroit */
 #endif
+#ifndef REU
     if (!filename[0] && !ask_filename()) SD_R(0);
+#endif
     memcpy(head, "PLM2", 4);
     head[4] = (unsigned char)SAVELEN;
     head[5] = (unsigned char)(SAVELEN >> 8);
@@ -2382,7 +2530,7 @@ static void load_named(void)
     strcpy(cmdname, filename);
     strcat(cmdname, ",S,R");
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+    if (cbm_open(2, dev, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
 #endif
 #ifdef RTF
     doc_fmt = 0;
@@ -2482,7 +2630,7 @@ static void open_doc(void)
     unsigned char count = 0, i, sel = 255, rows;
     char *shown = inputbuf;
     if (dirty && !message(S_OPEN, S_LOSE, 0, 1)) return;
-    if (cbm_opendir(1, 8) == 0) {
+    if (cbm_opendir(1, dev) == 0) {
         while (count < MAXFILES && !cbm_readdir(1, &e)) {
             if (e.type == CBM_T_SEQ) { io_hide(); strcpy(names[count++], e.name); io_show(); }
         }
@@ -3712,7 +3860,7 @@ static void bck_del(void)
     make_bck();
     strcpy(cmdname, "S0:");
     strcat(cmdname, bckname);
-    cbm_open(15, 8, 15, cmdname);
+    cbm_open(15, dev, 15, cmdname);
     cbm_close(15);
 }
 
@@ -4126,11 +4274,159 @@ static void cycle_theme(void)
 #pragma rodata-name (push, "OVERLAY8")
 #endif
 #ifdef REU
+/* ---- A fajlvalaszto jovahagyasi es meret-lepesei (8. overlay) ---- */
+/* Meretkod az SD_SIZE-bol (16 bites szamitassal, a bajtokbol): a felso 2 bit az egyseg (0 K, 1 M, 2 G), az also 14 bit az ertek (<= 999; 999K felett a kovetkezo egyseg). */
+static unsigned size_code(void)
+{
+    unsigned char *q = (unsigned char *)&SD_SIZE;
+    unsigned k = ((unsigned)q[2] << 6) | (q[1] >> 2), m;
+    if (q[0] || (q[1] & 3)) ++k;                                    /* felfele kerekites K-ra (16 MB alatt) */
+    if (!q[3] && q[2] < 16) {
+        if (k < 1000) return k;
+        return 0x4000 | ((k + 512) >> 10);
+    }
+    m = ((unsigned)q[3] << 4) | (q[2] >> 4);      /* MB, 16 MB felett */
+    if (m < 1000) return 0x4000 | m;
+    return 0x8000 | ((m + 512) >> 10);
+}
+
+static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
+{
+    unsigned char r, pc;
+    strcpy(sd_tmp, SD_NAME);                    /* a dokumentum sajat neve */
+    pc = PEEK(0xCB00);
+    POKE(0xCB00, 0);                             /* a konyvtar mar be van allitva : nincs ujabb chdir */
+    for (r = 0; r < nfiles; ++r) {
+        if (fsize[r]) continue;
+        io_hide();
+        strcpy(SD_NAME, rawn[r]);
+        io_show();
+        if (!sd_open(1)) {
+            sd_size();
+            fsize[r] = size_code();
+            sd_close();
+        }
+    }
+    POKE(0xCB00, pc);                           /* (SD_PATH[0] = pc : a cc65 itt egy elavult mutatora irt) */
+    strcpy(SD_NAME, sd_tmp);
+    sd_bad = 0;
+}
+static const char fext[3][4] = { "PLM", "RTF", "TXT" };
+/* Letezik-e az sd_cand nevu fajl az aktualis SD-mappaban ? (a teljes listat vegigolvassa) */
+static unsigned char sd_exists(void)
+{
+    unsigned char f = 0;
+    if (sd_dirbeg() == 0)
+        while (!sd_dirnext()) if (!stricmp((char *)SD_ENT + 1, sd_cand)) f = 1;
+    return f;
+}
+/* Uj nev kiterjesztese / letezes-ellenorzese (newname), jovahagyasok, a dokumentum uj neve. buf = outbuf+64. Vissza: 1 kesz, 0 a valaszto folytatodik. */
+static unsigned char file_commit_(const char *title, unsigned char save, unsigned char newname)
+{
+    unsigned char i, c, ex = 1;
+    char *e, *buf = (char *)outbuf + 64;
+    if (newname) {
+        e = strrchr(buf, '.');                  /* mindig van kiterjesztes : ha nincs, a formatumae */
+        if (!e) { strcat(buf, "."); strcat(buf, fext[pk_fm]); }
+        else if (!e[1]) strcat(buf, fext[pk_fm]);
+        if (sd_pk) {
+            for (i = 0; (c = (unsigned char)buf[i]) != 0; ++i) {
+                if (c >= 0xC1 && c <= 0xDA) c -= 0x80;
+                else if (c >= 0x41 && c <= 0x5A) c += 0x20;
+                else if (c >= 0x80) c = '_';
+                sd_cand[i] = (char)c;
+            }
+            sd_cand[i] = 0;
+            ex = sd_exists();
+        } else {
+            scan_dir(buf);
+            ex = blk_old != 0;
+        }
+    }
+    if (save && ex && !message(title, S_EXISTS, S_REPLACE, 1)) return 0;     /* felulirasi megerosites */
+    if (save && pk_fm == 2 && has_fmt()                                       /* szoveg: a formazas elvesz */
+        && !message(S_SAVETXT, S_TXTLOSS, S_TXTASK, 1)) return 0;
+    strncpy(filename, buf, 16);                 /* a dokumentum uj neve (lemezen 16 jegyu ; SD-n a cimsor a SD_NAME-bol rajzol) */
+    filename[16] = 0;
+    if (sd_pk) strcpy(SD_NAME, sd_cand);
+    sd_sel = sd_pk;
+    fmt_sel = pk_fm;
+    return 1;
+}
+
+/* Szovegbekeres (a Find es a fajlvalaszto "Uj..." gombja) : az 8. overlayben. */
+#ifdef REU
+#define AT_B 9                                  /* a gombok kozepso sora */
+#else
+#define AT_B 5
+#endif
+static unsigned char ask_text_(const char *title, const char *label, char *buf, unsigned char max,
+                              unsigned char petscii)
+{
+    char *shown = inputbuf;
+    unsigned char len = (unsigned char)strlen(buf), c, first = 1;
+    for (;;) {
+        if (first) {
+#ifdef REU
+            dialog(12, title);
+            put_text(DLG_X + 16, DLG_ROW + 3, label, 0);
+            outline_box(DLG_ROW + 4, 3, DLG_X + 16, DLG_W - 32);
+#else
+            dialog(8, title);
+            put_text(DLG_X + 16, DLG_ROW + 2, label, 0);
+#endif
+            button(BTN_OK_X, DLG_ROW + AT_B, S_OK);
+            button(BTN_CANCEL_X, DLG_ROW + AT_B, S_CANCEL);
+            first = 0;
+        }
+#ifdef REU
+        clear_cells(DLG_ROW + 5, DLG_X + 24, DLG_W - 48);
+#else
+        clear_cells(DLG_ROW + 3, DLG_X + 8, DLG_W - 16);
+        hline(DLG_ROW + 3, DLG_X + 16, DLG_W - 32, 7);
+#endif
+        if (petscii) petscii_to_text(shown, buf); else strcpy(shown, buf);
+        strcat(shown, "|");
+#ifdef REU
+        put_text(DLG_X + 24, DLG_ROW + 5, shown, BOLD);
+#else
+        put_text(DLG_X + 16, DLG_ROW + 3, shown, BOLD);
+#endif
+        do {
+            poll_mouse();
+            key = read_key();
+            if (on_button(BTN_OK_X, DLG_ROW + AT_B)) key = CR;
+            if (on_button(BTN_CANCEL_X, DLG_ROW + AT_B)) key = 3;
+        } while (!key);
+        if (key == CR && len) { dialog_close(); return 1; }
+        if (key == 3) { dialog_close(); return 0; }
+        if (key == 0x14) { if (len) buf[--len] = 0; continue; }
+        if (len >= max) continue;
+#ifdef REU
+        if (at12 && len >= 12 && key != '.' && !strchr(buf, '.')) continue;   /* lemezen kiterjesztes nelkul 12 jegy, a pont meg jon */
+#endif
+        if (petscii) {
+            if (((key >= 0x20 && key <= 0x5A) || (key >= 0xC1 && key <= 0xDA))
+                && key != ',' && key != ':' && key != '*' && key != '?' && key != '"' && key != '=') {
+                buf[len++] = key;
+            }
+        } else if ((c = translate(key)) != 0) {
+            buf[len++] = c;
+        }
+        buf[len] = 0;
+    }
+}
+
 /* Nev, verzio, keszitok (tobb sor, mint a message()-ben). */
 static void about_(void)
 {
-    unsigned char r = DLG_ROW + 2;
-    dialog(12, S_ABOUT);
+    unsigned char r = DLG_ROW + 3;
+#ifdef KBD_HU
+#define AB_L 6
+#else
+#define AB_L 5
+#endif
+    dialog(AB_L + 8, S_ABOUT);
     put_text(DLG_X + 16, r++, S_ABOUT1, BOLD);
     put_text(DLG_X + 16, r++, S_ABOUT2, 0);
     put_text(DLG_X + 16, r++, S_ABOUT3, 0);
@@ -4139,11 +4435,11 @@ static void about_(void)
     put_text(DLG_X + 16, r++, S_ABOUT6, 0);
 #endif
     put_text(DLG_X + 16, r, S_ABOUT4, 0);
-    button(BTN_OK_X, DLG_ROW + 9, S_OK);
+    button(BTN_OK_X + 56, DLG_ROW + AB_L + 5, S_OK);
     for (;;) {
         poll_mouse();
         key = read_key();
-        if (key == CR || key == 3 || on_button(BTN_OK_X, DLG_ROW + 9)) break;
+        if (key == CR || key == 3 || on_button(BTN_OK_X + 56, DLG_ROW + AB_L + 5)) break;
     }
     dialog_close();
 }
@@ -4204,6 +4500,11 @@ static unsigned char run_menu_(unsigned char m)
 #pragma code-name (pop)
 static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m); }
 static void about(void) { ovl_load(8); about_(); }
+static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
+{
+    ovl_load(8);
+    return ask_text_(title, label, buf, max, petscii);
+}
 #else
 #define run_menu run_menu_
 #endif
@@ -4575,7 +4876,9 @@ static void handle_key(unsigned char k)
 #ifdef REU
 /* Clic ou glissement dans l'ascenseur : la fenetre va a cet endroit du document. */
 /* La fenetre va a la position y (0..SBAR_H-16) de l'ascenseur. */
-static void sbar_goto(unsigned y)
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
+static void sbar_goto_(unsigned y)
 {
     unsigned L;
     dpos R, g;
@@ -4601,6 +4904,10 @@ static void sbar_goto(unsigned y)
     place_cursor();
     cursor_moved();
 }
+
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void sbar_goto(unsigned y) { ovl_load(6); sbar_goto_(y); }
 
 /* Clic ou glissement : le curseur suit la souris tout de suite, le texte
    suit quand la souris s'arrete un instant (6 images) et au relachement. */
@@ -4672,6 +4979,8 @@ static void sbar_drag(void)
 
 #ifdef REU
 /* Double clic : le mot sous le pointeur ; triple clic : la phrase (jusqu'a . ! ? ou fin de paragraphe). */
+#pragma code-name (push, "OVERLAY3")
+#pragma rodata-name (push, "OVERLAY3")
 static unsigned char wordch(unsigned char c)
 {
     return (c >= '0' && c <= '9') || ((c | 32) >= 'a' && (c | 32) <= 'z') || c >= 128;
@@ -4682,7 +4991,7 @@ static unsigned char endch(unsigned char c)
     return c == '.' || c == '!' || c == '?';
 }
 
-static void select_unit(unsigned p, unsigned char n)
+static void select_unit_(unsigned p, unsigned char n)
 {
     unsigned a = p, b = p;
     unsigned char c;
@@ -4701,6 +5010,9 @@ static void select_unit(unsigned p, unsigned char n)
     set_selection(a, b);
     cursor_moved();
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void select_unit(unsigned p, unsigned char n) { ovl_load(3); select_unit_(p, n); }
 #endif
 
 static void handle_click(void)

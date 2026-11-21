@@ -32,7 +32,7 @@ p_rlen  = V+98          ; 4   : hossz (loadreu / savereu)
         jmp do_delete           ; +24  p_name
         jmp do_chdir            ; +27  p_path
         jmp do_getpath          ; +30  -> p_path
-        jmp do_probe            ; +33  (fenntartva)
+        jmp do_abort            ; +33  a folyamatban levo konyvtarolvasas megszakitasa
         jmp do_size             ; +36  a megnyitott fajl merete -> p_size
         jmp do_loadreu          ; +39  megnyitott fajl -> REU (p_reu, p_rlen)
         jmp do_savereu          ; +42  REU -> megnyitott fajl
@@ -458,6 +458,16 @@ do_delete:
         jsr app_name
         jsr fin
         jmp ret
+
+do_abort:
+        lda #4                  ; UCI abort: a meg ki nem olvasott csomagok eldobasa
+        sta CTRL
+        jsr w_idle
+        lda #$40
+        sta dst
+        lda #0
+        ldx #0
+        rts
 
 do_getpath:
         lda #$12

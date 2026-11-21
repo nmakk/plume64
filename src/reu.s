@@ -97,7 +97,7 @@ no:     lda #0
 
 ; Az SD-fajlkezelo (src/sd.s) belepesei a $C700-on (led_theme(7) masolja oda indulaskor).
         .export _sd_probe, _sd_open, _sd_close, _sd_read, _sd_write, _sd_dirbeg, _sd_dirnext
-        .export _sd_delete, _sd_chdir, _sd_getpath, _sd_size, _sd_loadreu, _sd_savereu
+        .export _sd_delete, _sd_chdir, _sd_getpath, _sd_size, _sd_loadreu, _sd_savereu, _sd_abort
 _sd_probe   = $C700
 _sd_open    = $C703
 _sd_close   = $C706
@@ -108,6 +108,7 @@ _sd_dirnext = $C712
 _sd_delete  = $C718
 _sd_chdir   = $C71B
 _sd_getpath = $C71E
+_sd_abort   = $C721
 _sd_size    = $C724
 _sd_loadreu = $C727
 _sd_savereu = $C72A
