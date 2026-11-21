@@ -9,7 +9,9 @@ PAGES  = $(shell python3 -I -c "import os,sys;print((os.path.getsize(sys.argv[1]
 
 .PHONY: all clean
 VER := 26a
-all: $(foreach l,$(LANGS),build/plume-$(l).crt build/plumereu-$(l)-$(VER).crt)
+# The original (non-REU) Plume builds are no longer part of the default target (no space left for new features);
+# build them explicitly with `make build/plume-XX.crt`.
+all: $(foreach l,$(LANGS),build/plumereu-$(l)-$(VER).crt)
 
 src/font.s: fonts/unscii-8.hex tools/mkfont.py
 	python3 -I tools/mkfont.py $< $@
@@ -51,11 +53,17 @@ build/sd.bin: src/sd.s src/sd.cfg
 	ca65 -o build/sd.o src/sd.s
 	ld65 -C src/sd.cfg -o build/sd.bin build/sd.o
 
-build/plumereu-%-$(VER).crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin build/sd.bin
+build/font-small.bin: tools/mkfont_small.py
+	python3 -I tools/mkfont_small.py $@
+
+build/font-normal.bin: src/font.s tools/fontbin.py
+	python3 -I tools/fontbin.py src/font.s $@
+
+build/plumereu-%-$(VER).crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin build/sd.bin build/font-small.bin build/font-normal.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
 	OV=""; for f in $<.?; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
-	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME-E REU $(VER) $*" md 61=build/sd.bin 62=build/led.bin $$OV
+	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME-E REU $(VER) $*" md 59=build/font-normal.bin 60=build/font-small.bin 61=build/sd.bin 62=build/led.bin $$OV
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*.o crt.s

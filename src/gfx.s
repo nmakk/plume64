@@ -5,7 +5,7 @@
         .setcpu "6502"
         .importzp ptr1, ptr2, tmp1, tmp2, tmp3, tmp4
         .import _font_width, _font_bits
-        .export _gfx_init, _draw_glyph, _glyph_width
+        .export _gfx_init, _draw_glyph, _glyph_width, _fsmall
         .export _bm_fill, _bm_or
         .export _gx, _gch, _gstyle, _gbase
 
@@ -22,6 +22,7 @@ shift:   .res 1
 shvec:   .res 2
 width:   .res 1
 umask:   .res 1
+_fsmall: .res 1          ; 1 : kis betukeszlet (a felkover nem tolti ki az 1 pixeles reseket)
 row:     .res 1
 
         .code
@@ -159,8 +160,15 @@ dg_ni:    lda _gstyle
         beq dg_nb
         stx tmp1
         txa
-        lsr
-        ora tmp1
+        lsr                     ; a sor 1 pixellel jobbra kenve
+        ldx _fsmall
+        beq dg_nsm
+        sta tmp2                ; kis betu: ahol a kenes jobb szomszedja be van allitva, ott res marad
+        lda tmp1
+        asl
+        eor #$FF
+        and tmp2
+dg_nsm: ora tmp1
         tax
 dg_nb:    lda _gstyle
         and #STYLE_UNDERLINE
@@ -319,10 +327,12 @@ _bm_or:
 ; style en vigueur a cette position dans _nl_style.
         .import _text, _doclen, _wrap_width
         .importzp ptr3, ptr4, sreg
-        .export _next_line_asm, _nl_pos, _nl_style
+        .export _next_line_asm, _next_line_buf, _nl_pos, _nl_style, _nl_base, _nl_len
 
         .bss
 _nl_pos:   .res 2
+_nl_base:  .res 2           ; a tordelt szoveg kezdete (_text, vagy mas puffer)
+_nl_len:   .res 2           ; hossza
 _nl_style: .res 1
 nl_end:    .res 2           ; fin du texte
 nl_space:  .res 2           ; dernier espace (adresse), $FFFF = aucun
@@ -331,21 +341,30 @@ nl_start:  .res 2
 
         .code
 _next_line_asm:
-        clc                     ; ptr1 = text + pos
-        lda #<_text
+        lda #<_text             ; az ablak szovege
+        sta _nl_base
+        lda #>_text
+        sta _nl_base+1
+        lda _doclen
+        sta _nl_len
+        lda _doclen+1
+        sta _nl_len+1
+_next_line_buf:                 ; _nl_base / _nl_len altal megadott puffer (a sorszam-index hasznalja)
+        clc                     ; ptr1 = base + pos
+        lda _nl_base
         adc _nl_pos
         sta ptr1
         sta nl_start
-        lda #>_text
+        lda _nl_base+1
         adc _nl_pos+1
         sta ptr1+1
         sta nl_start+1
-        clc                     ; nl_end = text + doclen
-        lda #<_text
-        adc _doclen
+        clc                     ; nl_end = base + len
+        lda _nl_base
+        adc _nl_len
         sta nl_end
-        lda #>_text
-        adc _doclen+1
+        lda _nl_base+1
+        adc _nl_len+1
         sta nl_end+1
         lda #0
         sta ptr4                ; x = 0
@@ -423,16 +442,16 @@ _next_line_asm:
         sta ptr4+1
 @next:  jsr @inc
         jmp @loop
-@eof:   lda _doclen
-        ldx _doclen+1
+@eof:   lda _nl_len
+        ldx _nl_len+1
         rts
 @retptr:
-        sec                     ; position = ptr1 - text
+        sec                     ; position = ptr1 - base
         lda ptr1
-        sbc #<_text
+        sbc _nl_base
         pha
         lda ptr1+1
-        sbc #>_text
+        sbc _nl_base+1
         tax
         pla
         rts

@@ -161,6 +161,65 @@ ld:     pha
 ld_end:
         .reloc
 
+; void __fastcall__ font_load(unsigned char small) : la police (font_width + font_bits, 1350 octets) est
+; recopiee de la banque 59 (normale) ou 60 (petite) sur la table du programme. Meme technique qu'ovl_load.
+        .import _font_width
+        .export _font_load
+FONT_BANK0 = 59
+_font_load:
+        clc
+        adc #FONT_BANK0
+        ldx #fnt_end - fnt - 1
+        pha
+@i:     lda fnt_img,x
+        sta $0334,x
+        dex
+        bpl @i
+        pla
+        jmp $0334
+fnt_img:
+        .org $0334
+fnt:    sta OVL_TMP
+        php
+        sei
+        lda $01
+        pha
+        lda #$37
+        sta $01
+        lda OVL_TMP
+        sta $DE00
+        lda #$00
+        sta $FB
+        lda #$80
+        sta $FC
+        lda #<_font_width
+        sta $FD
+        lda #>_font_width
+        sta $FE
+        ldx #5
+        ldy #0
+@p:     lda ($FB),y
+        sta ($FD),y
+        iny
+        bne @p
+        inc $FC
+        inc $FE
+        dex
+        bne @p
+@q:     lda ($FB),y             ; les 70 octets restants (1350 = 5 * 256 + 70)
+        sta ($FD),y
+        iny
+        cpy #70
+        bne @q
+        lda #$80
+        sta $DE00
+        pla
+        sta $01
+        plp
+        rts
+fnt_end:
+        .reloc
+
 ; Overlays du programme : l'overlay n (1...) est dans la banque OVL_BANK0 + n de la
 ; cartouche, a l'adresse $8000 ; il est recopie dans la zone __OVERLAYSTART__ (taille
 ; __OVERLAYSIZE__, voir plume-reu.cfg). Meme technique que le code des leds : un petit
