@@ -37,6 +37,13 @@ The four colour themes (`CTRL` + `←`), with the small font and with the normal
 
 ![The four colour themes, normal font](docs/images/plumereu-themes-normal-font.png)
 
+On a C64 Ultimate the keyboard and case LEDs follow the colour theme (light, green, blue, yellow):
+
+| | |
+|---|---|
+| ![Light theme with white LEDs](docs/images/plumereu-leds-light.jpg) | ![Green theme with green LEDs](docs/images/plumereu-leds-green.jpg) |
+| ![Blue theme with blue LEDs](docs/images/plumereu-leds-blue.jpg) | ![Yellow theme with yellow LEDs](docs/images/plumereu-leds-yellow.jpg) |
+
 The file requester (Open, Save as with the format buttons), the Find box and the About box, and the File and Style menus (small and normal font):
 
 ![Dialogs](docs/images/plumereu-dialogs.png)
