@@ -159,7 +159,9 @@ for ch,(b,a) in C.items(): B[ch]=accent(b,a,True)
 for ch in 'üű': B[ch][2]=''
 B['Ü'][1]=''
 # Ű: smaller body (4 rows) and a taller (3-row) double acute
-B['Ű']=['.#.#','.#.#','#.#.','#..#','#..#','#..#','.##.','']
+B['Ű']=['.#.#','.#.#','','#..#','#..#','#..#','.##.','']
+# Ő: ugyanaz a logika : ket sor egyenes ekezet, egy ures sor, az O egy sorral kisebb teste
+B['Ő']=['.#.#','.#.#','','.##.','#..#','#..#','.##.','']
 # ú: acute one pixel to the right
 B['ú'][0],B['ú'][1]='...#','..#.'
 B['ç']=G(2,'.###','#...','#...','#...','.###','.#..') ; B['Ç']=G(1,'.###','#...','#...','#...','#...','.###','.#..')

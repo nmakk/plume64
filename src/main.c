@@ -3611,7 +3611,7 @@ static unsigned char rtf_code(unsigned u)
 }
 
 static unsigned char rcur, remit, rdepth, rfirst, rst, rlen, rneg, rhas, rhex, rskip, ruc, rfull;
-static unsigned rnum;
+static unsigned rnum, rcp;                      /* rcp : \ansicpg (1250 : a Windows-1250 ekezetes betui, ő ű) */
 static unsigned char rstack[24], rword[8];
 
 static void r_flush(void)
@@ -3679,6 +3679,7 @@ static void r_word(void)
     else if (!strcmp(w, "tab")) r_put(' ');
     else if (!strcmp(w, "u")) { r_uni(rneg ? 0 - rnum : rnum); rskip = ruc; }
     else if (!strcmp(w, "uc")) ruc = (unsigned char)rnum;
+    else if (!strcmp(w, "ansicpg")) rcp = rnum;
 }
 
 static unsigned char r_hex(unsigned char c)
@@ -3750,6 +3751,11 @@ static void r_byte(unsigned char c)
         rhex |= r_hex(c);
         rnum = rhex;                              /* pas de ?: (cc65 tronque a 8 bits) */
         if (rhex >= 0x80 && rhex < 0xA0) rnum = cp1252_hi[rhex & 31];
+        if (rcp == 1250) {                        /* Windows-1250 : csak a magyar ő Ő ű Ű kulonbozik a 1252-tol */
+            c = rhex & 0xDF;
+            if (c == 0xD5) rnum = 0x150 | ((rhex >> 5) & 1);
+            else if (c == 0xDB) rnum = 0x170 | ((rhex >> 5) & 1);
+        }
         r_uni(rnum);
     }
 }
@@ -3783,6 +3789,7 @@ static void load_rtf(void)
     pg_begin(S_LOADING, (dpos)blk_old << 8);
     rcur = remit = rdepth = rfirst = rst = rskip = rfull = rhex = rneg = 0;
     ruc = 1;
+    rcp = 0;
     for (;;) {
         if (sd_on) {
             n = SD_SIZE - spos > 256 ? 256 : (int)(SD_SIZE - spos);
@@ -4035,27 +4042,33 @@ static void bck_saved_(void)
 
 static void quick_save_(void)
 {
-    static unsigned char hd[13];
+    unsigned char *hd = (unsigned char *)inputbuf;      /* a fejlec 13 bajtja a (most szabad) beviteli pufferben */
+    unsigned char again = 1;
     if (jr_len == jb) { bck_del(); dirty = 0; shown_dirty = 255; draw_status(); return; }
     make_bck();
     if (!fit_check(13UL + jr_len - jb, bckname)) return;
-    if (sd_on) sd_bck(1);
     memcpy(hd, "PBK3", 4);
     hd[4] = (unsigned char)base_len; hd[5] = (unsigned char)(base_len >> 8);
     hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
     hd[8] = (unsigned char)base_sig; hd[9] = (unsigned char)(base_sig >> 8);
     hd[10] = (unsigned char)(jr_len - jb); hd[11] = (unsigned char)((jr_len - jb) >> 8); hd[12] = (unsigned char)((jr_len - jb) >> 16);
-    pg_begin(S_SAVING, jr_len - jb);
-    disk_busy(1);
-    if (fo_w() == 0) {
-        fw(hd, 13);
-        write_reu(JR_BASE + jb, jr_len - jb);
-        fc();
+    for (;;) {
+        sd_bad = 0;                             /* egy korabbi, mar elintezett SD-hiba ne szamitson bele */
+        if (sd_on) sd_bck(1);
+        pg_begin(S_SAVING, jr_len - jb);
+        disk_busy(1);
+        if (fo_w() == 0) {
+            fw(hd, 13);
+            write_reu(JR_BASE + jb, jr_len - jb);
+            fc();
+        }
+        if (sd_on) sd_bck(0);
+        disk_busy(0);
+        pg_end();
+        if (disk_status() < 20) break;
+        if (!sd_on || !again) { show_disk_error(); return; }
+        again = 0;                              /* az SD (UCI) atmeneti hibaja : egyszer ujraprobaljuk */
     }
-    if (sd_on) sd_bck(0);
-    disk_busy(0);
-    pg_end();
-    if (disk_status() >= 20) { show_disk_error(); return; }
     dirty = 0;
     shown_dirty = 255;
     draw_status();
