@@ -248,7 +248,7 @@ unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void)
 #define SD_PE   (*(unsigned char *)0xCB9A)
 static char sd_title[28];                       /* az SD-n levo dokumentum neve a cimsorhoz (megjelenitesre kesz) */
 #define sd_cand ((char *)outbuf + 128)         /* a valasztoban kijelolt SD-nev, 64 bajt (a dokumentum neve csak jovahagyas utan valtozik) */
-static char dlabel[4] = "U08";
+static char dlabel[4] = "D8";
 static unsigned char sd_on, sd_ok, sd_bad, sd_pk, sd_ca, at12, pk_first;
 static void sd_conv(char *d, const unsigned char *s, unsigned char n);       /* sd_ca : a kivalasztott bejegyzes attributuma */
 static unsigned char quiet;                     /* pas de dessin (relecture du journal) */
@@ -1816,7 +1816,9 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
             if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
         }
         outline_box(10, 8, 24, 272);            /* a lista: fejlec-sor (utvonal / szabad blokk) + a bejegyzesek */
-        if (sd_pk) lp_tail(b); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
+        if (sd_pk) lp_tail(b);
+        else if (blk_free == 0xFFFF) { strcpy(b, S_NODISK); utoa_simple(b + sizeof(S_NODISK) - 1, dev); }
+        else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(32, 11, b, BOLD);
         for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
             if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
@@ -2118,8 +2120,8 @@ static unsigned char choose(const char *title, unsigned char save)
     fpage = 0;
     pk_first = 1;
     for (;;) {
-        dlabel[1] = (char)('0' + dev / 10);           /* "U08" .. "U11" */
-        dlabel[2] = (char)('0' + dev % 10);
+        if (dev >= 10) { dlabel[1] = '1'; dlabel[2] = (char)('0' + dev - 10); dlabel[3] = 0; }   /* "D8" .. "D11" */
+        else { dlabel[1] = (char)('0' + dev); dlabel[2] = 0; }
         rq_list();
         ovl_load(7);
         r = pick_file_(title, save);
