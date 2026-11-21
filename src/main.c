@@ -932,7 +932,7 @@ static const char *const menu_keys[NMENUS][MENUW] = {
 #endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=Spc", "Ctrl+9", "S-Del", 0 },
+    { "", "C=+Spc", "Ctrl+9", "Shift+Del", 0 },
 #elif defined(REU)
     { "", "Ctrl+9", 0 },
 #else
