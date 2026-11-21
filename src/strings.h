@@ -102,7 +102,7 @@
 #define S_RELOADB    "Restore from .bck"
 #define S_RELOAD1    "Back to the file on disk."
 #ifdef REU
-#define S_VER        "26a"                   /* PlumE REU : annee + lettre de la livraison */
+#define S_VER        "26b"                   /* PlumE REU : annee + lettre de la livraison */
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"
@@ -217,7 +217,7 @@
 #define S_RELOADB    "Restaurer le .bck"
 #define S_RELOAD1    "Retour au fichier du disque."
 #ifdef REU
-#define S_VER        "26a"
+#define S_VER        "26b"
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"

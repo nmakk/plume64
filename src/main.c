@@ -5041,7 +5041,9 @@ static unsigned char translate(unsigned char k)
 /* Apres un deplacement, le style de frappe suit le texte. */
 static void cursor_moved(void)
 {
-    style = style_before(cursor);
+    unsigned p = cursor;
+    while (p < doclen && IS_MARK(text[p])) ++p;   /* a jelzo a kurzor alatti betu stilusat mutatja */
+    style = style_before(p);
     place_cursor();
     draw_status();
 }
