@@ -7,3 +7,6 @@ __pycache__/
 # Sauvegardes locales de documents
 backups/
 tools/c64u/c64u-ki/
+
+# Local working notes (Hungarian), not published
+PLUME-NOTES.md

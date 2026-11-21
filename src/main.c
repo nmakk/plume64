@@ -83,7 +83,11 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #else
 #define MAXDOC    20000u
 #endif
+#ifdef REU
+#define MAXLINES  520                   /* $C700-tol az SD-modul (src/sd.s) van, $CBC0-nal a 2. sprite */
+#else
 #define MAXLINES  950
+#endif
 #define CR        13
 #define NOSEL     0xFFFFu
 #define PRINT_CARDS_ 60
@@ -97,9 +101,12 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #define oldstyle  ((unsigned char *)(0xD000 + 2 * (MAXLINES + 2)))
 #define CLIP      ((unsigned char *)(0xD000 + 3 * (MAXLINES + 2)))
 #define CLIPMAX   760
+#ifdef REU
+typedef char sd_area_check[1 - 2 * (0xC080 + 3 * (MAXLINES + 2) > 0xC700)];
+#endif   /* a sorok tablazata nem erhet az SD-modulig */
 typedef unsigned long dpos;             /* position dans le document (24 bits utiles) */
 /* Noms de la boite Ouvrir : sous les E/S, apres le presse-papiers. */
-#define names     ((char (*)[17])(0xD000 + 3 * (MAXLINES + 2) + CLIPMAX))
+#define names     ((char (*)[28])(0xD000 + 3 * (MAXLINES + 2) + CLIPMAX))
 /* $0334-$03FB, tampon cassette inutilise : petites chaines. */
 #define diskmsg   ((char *)0x0334)              /* 41 octets */
 #define cmdname   ((char *)0x035D)              /* 24 */
@@ -209,6 +216,26 @@ static unsigned redo_n;                    /* annuler en cours : on ne journalis
 static void quick_save(void);
 static void bck_saved(void);
 static void bck_loaded(void);
+/* SD / USB du C64 Ultimate : le fichier se lit et s'ecrit par l'interface de commande (UCI), via le
+   petit module de src/sd.s, copie en $CC00 au demarrage. sd_on : le document est sur la SD. */
+unsigned char __fastcall__ sd_open(unsigned char mode);
+unsigned char sd_probe(void), sd_close(void), sd_read(void), sd_write(void), sd_dirbeg(void), sd_dirnext(void);
+unsigned char sd_delete(void), sd_size(void), sd_loadreu(void), sd_savereu(void), sd_getpath(void);
+#define SD_PATH ((char *)0xCB00)                /* repertoire (absolu) */
+#define SD_NAME ((char *)0xCB30)                /* nom du fichier, octets bruts */
+#define SD_PTR  (*(unsigned *)0xCB54)
+#define SD_LEN  (*(unsigned *)0xCB56)
+#define SD_SIZE (*(unsigned long *)0xCB58)
+#define SD_ATT  (*(unsigned char *)0xCB5C)
+#define SD_REU  (*(unsigned long *)0xCB5E)
+#define SD_RLEN (*(unsigned long *)0xCB62)
+#define SD_ENT  ((unsigned char *)0xCB8E)       /* entree de repertoire : attribut, nom */
+#define SD_SV   ((char *)0xCB66)                /* extension sauvee pendant que le nom est celui du .bck */
+#define SD_PE   (*(unsigned char *)0xCB6E)
+static char sd_title[28];                       /* az SD-n levo dokumentum neve a cimsorhoz (megjelenitesre kesz) */
+static char sd_cand[36];                        /* a valasztoban kijelolt SD-nev (a dokumentum neve csak jovahagyas utan valtozik) */
+static unsigned char sd_on, sd_ok, sd_bad, sd_pk, sd_ca, at12;
+static void sd_conv(char *d, const unsigned char *s, unsigned char n);       /* sd_ca : a kivalasztott bejegyzes attributuma */
 static unsigned char quiet;                     /* pas de dessin (relecture du journal) */
 static dpos suf_len;                    /* octets apres la fenetre, dans le REU */
 static dpos suf_end;                    /* adresse REU de la fin du suffixe */
@@ -224,6 +251,12 @@ static unsigned char sc_st, sc_ok;
 
 /* JiffyDOS passe au protocole lent des qu'un sprite est actif : on les coupe
    pendant les transferts de fichiers. */
+#ifndef REU
+#define fo_w() cbm_open(2, 8, 2, cmdname)
+#define fw(b, n) cbm_write(2, b, n)
+#define fc() cbm_close(2)
+#define fr(b, n) cbm_read(2, b, n)
+#endif
 #define disk_busy(on) POKE(0xD015, (on) ? 0 : 1)    /* 1 : la fleche ; le curseur se rallume au clignotement */
 
 static void io_hide(void) { asm("sei"); POKE(0x01, 0x34); }
@@ -641,6 +674,10 @@ static void draw_title(void)
     shown_dirty = dirty;
     shown_style = style;
     clear_cells(1, 0, 320);
+#ifdef REU
+    if (sd_on && filename[0]) strcpy(buf, sd_title);
+    else
+#endif
     petscii_to_text(buf, filename);
     if (!filename[0]) strcpy(buf, S_UNTITLED);
     x = put_text(6, 1, buf, BOLD);
@@ -819,9 +856,10 @@ static void pg_end(void)
 
 #define NMENUS 5
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
-static const char *const menu_items[NMENUS][9] = {
+#define MENUW 9
+static const char *const menu_items[NMENUS][MENUW] = {
 #ifdef RTF
-    { S_NEW, S_OPEN, S_QSAVE, S_SAVE, S_SAVEAS, S_SAVERTF, S_RELOAD, S_RELOADB, 0 },
+    { S_NEW, S_OPEN, S_RELOAD, S_RELOADB, S_QSAVE, S_SAVE, S_SAVEAS, 0 },
 #else
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
@@ -844,9 +882,9 @@ static const char *const menu_items[NMENUS][9] = {
     { S_ABOUT, 0 },
 #endif
 };
-static const char *const menu_keys[NMENUS][9] = {
+static const char *const menu_keys[NMENUS][MENUW] = {
 #ifdef RTF
-    { "", "", "F1", "", "", "", "", "", 0 },
+    { "", "", "", "", "F1", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
@@ -882,13 +920,24 @@ static void draw_menubar(void)
         x += (text_width(menu_title[m], 0) + 16) & 0xFFF8u;
     }
     menu_x[NMENUS] = x;
+#ifdef REU
+    put_text(304 - text_width("Plum", BOLD), 0, "Plum", BOLD);
+    put_text(304, 0, "E", BOLD);                        /* az E a sajat cellajaban van : szine temankent kulon (page_colors) */
+#else
     put_text(320 - 8 - text_width("Plume", BOLD), 0, "Plume", BOLD);
+#endif
 }
 
+#ifdef REU
+static const unsigned char accent[NTHEMES] = { COLOR_PURPLE, COLOR_PURPLE, COLOR_RED, COLOR_RED };   /* az E betu tintaja a temakhoz */
+#endif
 static void page_colors(void)
 {
     unsigned char r;
     color_cells(0, 0, 40, COL_BAR);
+#ifdef REU
+    color_cells(0, 38, 1, (unsigned char)((accent[theme_no] << 4) | (COL_BAR & 15)));   /* a PlumE "E" betuje */
+#endif
     color_cells(1, 0, 40, COL_BAR);
     color_cells(FOOT_ROW, 0, 40, COL_BAR);
     for (r = TEXT_ROW0; r < FOOT_ROW; ++r) {
@@ -1152,6 +1201,9 @@ static unsigned char ask_text(const char *title, const char *label, char *buf, u
         if (key == 3) { dialog_close(); return 0; }
         if (key == 0x14) { if (len) buf[--len] = 0; continue; }
         if (len >= max) continue;
+#ifdef REU
+        if (at12 && len >= 12 && key != '.' && !strchr(buf, '.')) continue;   /* lemezen kiterjesztes nelkul 12 jegy, a pont meg jon */
+#endif
         if (petscii) {
             if (((key >= 0x20 && key <= 0x5A) || (key >= 0xC1 && key <= 0xDA))
                 && key != ',' && key != ':' && key != '*' && key != '?' && key != '"' && key != '=') {
@@ -1351,6 +1403,46 @@ static void reu_probe_size_(void)
 #pragma code-name (pop)
 static void reu_probe_size(void) { ovl_load(4); reu_probe_size_(); }
 
+/* Entrees-sorties de fichier (canal 2 du disque, ou la SD) : sd_on choisit. */
+static unsigned char sdk(unsigned char e) { if (e) sd_bad = e; return e; }
+static unsigned char fo_r(const char *name)     /* ouvre en lecture ; name : nom PETSCII (disque) */
+{
+    if (sd_on) return sdk(sd_open(1));
+    strcpy(cmdname, name);
+    strcat(cmdname, ",S,R");
+    return cbm_open(2, 8, 2, cmdname);
+}
+static unsigned char fo_w(void)                 /* ouvre en ecriture (cmdname prepare par fit_check) */
+{
+    if (sd_on) return sdk(sd_open(0x0A));            /* FA_WRITE | FA_CREATE_ALWAYS : felulirja (0x04, FA_CREATE_NEW, letezo fajlnal hibat ad) */
+    return cbm_open(2, 8, 2, cmdname);
+}
+static int fr(void *b, unsigned n)
+{
+    if (!sd_on) return cbm_read(2, b, n);
+    SD_PTR = (unsigned)b;
+    SD_LEN = n;
+    sdk(sd_read());
+    return SD_LEN;
+}
+static void fw(const void *b, unsigned n)
+{
+    if (!sd_on) { cbm_write(2, b, n); return; }
+    SD_PTR = (unsigned)b;
+    SD_LEN = n;
+    sdk(sd_write());
+}
+static void fc(void) { if (sd_on) sdk(sd_close()); else cbm_close(2); }
+/* Van-e formazas (stilusjel) a dokumentumban ? A first_mark csak az ablakbol mar kilepett / betoltott reszt tartja nyilvan, ezert az ablak szoveget is atnezzuk. */
+static unsigned char has_fmt(void)
+{
+    unsigned i;
+    if (first_mark != 0xFFFFFFFFUL) return 1;
+    for (i = 0; i < doclen; ++i) if (IS_MARK(text[i])) return 1;
+    return 0;
+}
+
+
 /* Ecrit sur le canal 2 n octets du REU a partir de ra, par morceaux de 256. */
 static void write_reu(dpos ra, dpos n)
 {
@@ -1358,7 +1450,7 @@ static void write_reu(dpos ra, dpos n)
     while (n) {
         k = n > 256 ? 256 : (unsigned)n;
         reu_move(1, outbuf, ra, k);
-        cbm_write(2, outbuf, k);
+        fw(outbuf, k);
         pg_add(k);
         ra += k;
         n -= k;
@@ -1371,6 +1463,9 @@ static unsigned char disk_status(void)
     unsigned char n;
     int r;
     diskmsg[0] = 0;
+#ifdef REU
+    if (sd_on) { n = sd_bad; sd_bad = 0; strcpy(diskmsg, "SD ERROR"); return n; }
+#endif
     if (cbm_open(15, 8, 15, "")) return 99;
     r = cbm_read(15, diskmsg, 40);
     cbm_close(15);
@@ -1392,12 +1487,21 @@ static void show_disk_error(void)
 /* Repertoire : noms des fichiers SEQ (sous les E/S), blocs libres, taille du
    fichier "find" s'il existe deja. Blocs libres inconnus (pas de disque) : 0xFFFF. */
 #ifdef RTF
-static unsigned char rtf_doc;                   /* le document vient d'un fichier RTF / a ete enregistre en RTF */
+static unsigned char doc_fmt;                   /* format du document : 0 Plume (.plm), 1 RTF, 2 texte */
+static unsigned char rtxt, rtf_txt;             /* lecture / ecriture en texte seul (rtxt : load_rtf, rtf_txt : rtf_body) */
+static unsigned char sd_sel, fmt_sel, pk_btn, pk_save, pk_fm;   /* fichier : resultat du choix ; boutons du selecteur */
 /* Le code RTF vit dans l'overlay 1 (une banque de la cartouche) : ces points d'entree le chargent d'abord. */
 static void rtf_open(void);
-static void rtf_save(void);
+static void txt_open(void);
 static unsigned char rtf_write(char *name);
+static unsigned char txt_write(char *name);
 #endif
+/* A Plume sajat .bck kisero fajljat a valasztoban nem mutatjuk (PETSCII es ASCII nevre is jo: a kis- es nagybetu azonos). */
+static unsigned char is_bck(const char *n)
+{
+    unsigned char l = (unsigned char)strlen(n);
+    return l > 4 && n[l - 4] == '.' && (n[l - 3] & 0x5F) == 0x42 && (n[l - 2] & 0x5F) == 0x43 && (n[l - 1] & 0x5F) == 0x4B;
+}
 static unsigned blk_free, blk_old, fsize[MAXFILES];
 static unsigned char nfiles, fpage, fmore;
 
@@ -1416,6 +1520,7 @@ static void scan_dir(const char *find)
         if (r) break;
         if (e.type != CBM_T_SEQ) continue;
         if (find && !strcmp(e.name, find)) blk_old = e.size;
+        if (pk_btn && is_bck(e.name)) continue;    /* csak a Plume valasztojaban (Open / Save as) */
         if (tot >= skip && nfiles < MAXFILES) { fsize[nfiles] = e.size; io_hide(); strcpy(names[nfiles++], e.name); io_show(); }
         ++tot;
     }
@@ -1423,6 +1528,9 @@ static void scan_dir(const char *find)
     fmore = tot > skip + nfiles;
 }
 
+#pragma code-name (push, "OVERLAY7")
+#pragma rodata-name (push, "OVERLAY7")
+static unsigned char sd_scan_(unsigned char cap);
 /* Liste des fichiers en deux colonnes + blocs libres. Renvoie l'index choisi,
    254 pour "Nouveau..." (si newbtn), 255 si annule. */
 static const unsigned char arrow_up[8] = { 0x18, 0x3C, 0x7E, 0x18, 0x18, 0x18, 0x18, 0x18 };
@@ -1433,9 +1541,10 @@ static void arrow_draw(unsigned char row, unsigned char up)
     for (k = 0; k < 8; ++k) bm_or(ROWBASE(row) + DLG_X + DLG_W - 24 + k, arrow_up[up ? k : 7 - k]);
 }
 
-static unsigned char pick_file(const char *title, unsigned char newbtn)
+static unsigned char pick_file_(const char *title, unsigned char newbtn)
 {
     unsigned char i, rows, by, sel, last;
+    unsigned bx;
     char *shown = inputbuf, *b = (char *)outbuf;
     for (;;) {
         rows = (fpage || fmore) ? MAXFILES : nfiles;
@@ -1444,8 +1553,23 @@ static unsigned char pick_file(const char *title, unsigned char newbtn)
         sel = 255;
         panel(4, (unsigned char)(rows + 7), DLG_X, DLG_W);
         put_text(DLG_X + 16, 5, title, BOLD);
+        if (pk_btn) {                           /* hely (Disk / SD) es formatum (PLM RTF TXT) kapcsolok a 6. sorban */
+            if (sd_ok) {
+                put_text(56, 6, "Disk", BOLD);
+                put_text(96, 6, "C64U", BOLD);
+                bx = sd_pk ? 94 : 54;
+                xor_span(6, bx, bx + 36);
+            }
+            if (pk_save) {
+                put_text(170, 6, "PLM", BOLD);
+                put_text(210, 6, "RTF", BOLD);
+                put_text(250, 6, "TXT", BOLD);
+                bx = 166 + 40 * pk_fm;
+                xor_span(6, bx, bx + 32);
+            }
+        }
         for (i = 0; i < nfiles; ++i) {          /* blocs (aligne a droite) puis le nom */
-            utoa_simple(b, fsize[i]);
+            if (fsize[i] == 0xFFFF) strcpy(b, "DIR"); else utoa_simple(b, fsize[i]);
             put_text(DLG_X + 48 - text_width(b, 0), (unsigned char)(7 + i), b, 0);
             io_hide();
             strcpy(shown, names[i]);
@@ -1453,7 +1577,7 @@ static unsigned char pick_file(const char *title, unsigned char newbtn)
             petscii_to_text(shown, shown);
             put_text(DLG_X + 60, (unsigned char)(7 + i), shown, 0);
         }
-        strcpy(utoa_simple(b, blk_free), S_BLKFREE);
+        if (sd_pk) strcpy(b, SD_PATH); else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(DLG_X + 16, (unsigned char)(7 + rows), b, 0);
         button(BTN_CANCEL_X, by, S_CANCEL);
         if (newbtn) button(BTN_OK_X, by, S_NEWFILE);
@@ -1464,6 +1588,13 @@ static unsigned char pick_file(const char *title, unsigned char newbtn)
             key = read_key();
             if (key == 3 || on_button(BTN_CANCEL_X, by)) break;
             if (newbtn && (key == CR || on_button(BTN_OK_X, by))) sel = 254;
+            if (pk_btn && clicked && mouse_y / 8 == 6) {
+                if (sd_ok && mouse_x >= 52 && mouse_x < 92) sel = 249;
+                else if (sd_ok && mouse_x >= 92 && mouse_x < 134) sel = 248;
+                else if (pk_save && mouse_x >= 164 && mouse_x < 204) sel = 245;
+                else if (pk_save && mouse_x >= 204 && mouse_x < 244) sel = 246;
+                else if (pk_save && mouse_x >= 244 && mouse_x < 280) sel = 247;
+            }
             if (clicked && mouse_y / 8 >= 7 && mouse_y / 8 <= last) {
                 i = (unsigned char)(mouse_y / 8 - 7);
                 if (mouse_x >= DLG_X + DLG_W - 32 && (i == 0 || i == rows - 1) && (fpage || fmore)) {
@@ -1474,9 +1605,197 @@ static unsigned char pick_file(const char *title, unsigned char newbtn)
         }
         if (sel != 253) return sel;
         fpage = (unsigned char)(fpage + (key == 0x11 ? 1 : -1));
-        scan_dir(0);
+        if (sd_pk) sd_scan_(255); else scan_dir(0);
     }
 }
+
+/* ---- Fajlvalaszto a SD-kartyan (UCI) ---- */
+/* SD-nev (ASCII / UTF-8) -> PETSCII megjelenitesre, legfeljebb n jel (d: n+1 bajt) ; ha hosszabb, kozepen "~"-vel rovidul (a kiterjesztes lathato marad). */
+static char sd_tmp[36];
+static void sd_conv(char *d, const unsigned char *s, unsigned char n)
+{
+    unsigned char c, i = 0, h, t;
+    while ((c = *s++) != 0 && i < 35) {
+        if (c >= 0x80 && c < 0xC0) continue;            /* UTF-8 folytatobajt */
+        if (c >= 'a' && c <= 'z') c -= 0x20;
+        else if (c >= 'A' && c <= 'Z') c += 0x80;
+        else if (c >= 0xC0) c = '?';
+        sd_tmp[i++] = (char)c;
+    }
+    sd_tmp[i] = 0;
+    if (i <= n) { strcpy(d, sd_tmp); return; }
+    h = (unsigned char)((n - 1) / 2);
+    t = (unsigned char)(n - 1 - h);
+    memcpy(d, sd_tmp, h);
+    d[h] = '~';
+    strcpy(d + h + 1, sd_tmp + i - t);
+}
+
+/* A fpage. oldal: names[] / fsize[] (0xFFFF: konyvtar). cap: ennek az indexnek a nyers neve SD_NAME-be, attributuma SD_ATT-be.
+   Vissza: 0, ha a konyvtar nem olvashato. */
+static unsigned char sd_scan_(unsigned char cap)
+{
+    unsigned char tot = 0, skip = (unsigned char)(fpage * MAXFILES);
+    unsigned char r, hf = 0;
+    nfiles = 0;
+    r = sd_dirbeg();
+    if (r > 1) return 0;                        /* 1 : ures konyvtar (01,DIRECTORY EMPTY) */
+    if (SD_PATH[1]) {                           /* ".." : fel */
+        if (!skip) {
+            io_hide();
+            strcpy(names[0], "..");
+            io_show();
+            fsize[0] = 0xFFFF;
+            if (cap == 0) { strcpy(sd_cand, ".."); sd_ca = 0x10; }
+            nfiles = 1;
+        }
+        ++tot;
+    }
+    while (!r && !sd_dirnext()) {
+        if (!stricmp((char *)SD_ENT + 1, "ftp")) hf = 1;
+        if (is_bck((char *)SD_ENT + 1)) continue;
+        if (tot >= skip && nfiles < MAXFILES) {
+            io_hide();
+            sd_conv(names[nfiles], SD_ENT + 1, 24);
+            io_show();
+            fsize[nfiles] = (SD_ENT[0] & 0x10) ? 0xFFFF : 0;
+            if (nfiles == cap) { strncpy(sd_cand, (char *)SD_ENT + 1, 35); sd_cand[35] = 0; sd_ca = SD_ENT[0]; }
+            ++nfiles;
+        }
+        ++tot;
+    }
+    if (!SD_PATH[1] && !hf) {                   /* a gyokerben az /ftp/ (bemountolt FTP-szerverek) nincs a listaban, de belepni lehet */
+        if (tot >= skip && nfiles < MAXFILES) {
+            io_hide();
+            strcpy(names[nfiles], "ftp");
+            io_show();
+            fsize[nfiles] = 0xFFFF;
+            if (nfiles == cap) { strcpy(sd_cand, "ftp"); sd_ca = 0x10; }
+            ++nfiles;
+        }
+        ++tot;
+    }
+    fmore = tot > skip + nfiles;
+    return 1;
+}
+
+/* Bemenet a megtekintesre: "mappa" belepes / ".." kilepes */
+static void sd_enter(void)
+{
+    char *e;
+    if (!strcmp(sd_cand, "..")) {
+        e = strrchr(SD_PATH, '/');
+        if (e == SD_PATH) SD_PATH[1] = 0; else if (e) *e = 0;
+    } else {
+        e = SD_PATH + strlen(SD_PATH);
+        if (e - SD_PATH + strlen(sd_cand) > 46) return;
+        if (SD_PATH[1]) *e++ = '/';
+        strcpy(e, sd_cand);
+    }
+}
+
+/* Fajlvalaszto, lemez es SD egyutt. save: formatum-kapcsolok es "Uj..." gomb.
+   Vissza: 0 megszakitva (az SD utvonal visszaall), 1 meglevo fajl, 2 uj nev. Eredmeny: sd_sel (hely), fmt_sel (formatum),
+   filename (megjeleno nev, PETSCII), SD-n SD_NAME (nyers nev). */
+static const char fext[3][4] = { "PLM", "RTF", "TXT" };
+/* Letezik-e az sd_cand nevu fajl az aktualis SD-mappaban ? (a teljes listat vegigolvassa) */
+static unsigned char sd_exists(void)
+{
+    unsigned char f = 0;
+    if (sd_dirbeg() == 0)
+        while (!sd_dirnext()) if (!stricmp((char *)SD_ENT + 1, sd_cand)) f = 1;
+    return f;
+}
+static unsigned char file_choose_(const char *title, unsigned char save)
+{
+    unsigned char sel, i, c, ex;
+    char *e;
+    char *sv = (char *)outbuf + 200;
+    char *buf = (char *)outbuf + 64;
+    strcpy(sv, SD_PATH);
+    sd_pk = sd_ok && (sd_on || !filename[0]);   /* a dokumentum helye ; uj dokumentum : az SD, ha van */
+    pk_fm = filename[0] ? doc_fmt : 1;          /* a dokumentum formatuma ; meg nincs : RTF */
+    pk_btn = 1;
+    pk_save = save;
+    if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/");     /* elso hasznalat: a gyoker (SD, USB0, ...) ; utana az utoljara hasznalt mappa */
+    fpage = 0;
+    for (;;) {
+        if (sd_pk) {
+            if (!sd_scan_(255)) {
+                if (strcmp(SD_PATH, "/")) { strcpy(SD_PATH, "/"); continue; }
+                message(S_DISKERR, S_NOSD, 0, 0);
+                sd_pk = 0;
+                continue;
+            }
+        } else scan_dir(0);
+        sel = pick_file_(title, save);
+        if (sel == 255) break;
+        if (sel >= 245 && sel <= 249) {         /* kapcsolo */
+            if (sel >= 248) { sd_pk = (sel == 248); if (sd_pk && !SD_PATH[0]) strcpy(SD_PATH, "/"); }
+            else pk_fm = sel - 245;
+            fpage = 0;
+            redraw_all();
+            continue;
+        }
+        ex = 1;                                 /* ex: a fajl mar letezik */
+        if (sel == 254) {                       /* uj nev */
+            buf[0] = 0;
+            at12 = !sd_pk;
+            i = ask_text(title, S_FILENAME, buf, sd_pk ? 24 : 16, 1);
+            at12 = 0;
+            if (!i) break;
+            e = strrchr(buf, '.');                              /* mindig van kiterjesztes : ha nincs, a formatumae */
+            if (!e) { strcat(buf, "."); strcat(buf, fext[pk_fm]); }
+            else if (!e[1]) strcat(buf, fext[pk_fm]);
+            if (sd_pk) {
+                for (i = 0; (c = (unsigned char)buf[i]) != 0; ++i) {
+                    if (c >= 0xC1 && c <= 0xDA) c -= 0x80;
+                    else if (c >= 0x41 && c <= 0x5A) c += 0x20;
+                    else if (c >= 0x80) c = '_';
+                    sd_cand[i] = (char)c;
+                }
+                sd_cand[i] = 0;
+                ex = sd_exists();
+            } else {
+                scan_dir(buf);
+                ex = blk_old != 0;
+            }
+            sel = 2;
+        } else if (sd_pk) {
+            sd_scan_(sel);
+            if (sd_ca & 0x10) { sd_enter(); fpage = 0; redraw_all(); continue; }     /* mappa : belepes */
+            if (strlen(sd_cand) > 30) { message(title, S_SDLONG, 0, 0); continue; }
+            sd_conv(buf, (unsigned char *)sd_cand, 16);
+            sel = 1;
+        } else {
+            io_hide();
+            strcpy(buf, names[sel]);
+            io_show();
+            sel = 1;
+        }
+        if (save && ex && !message(title, S_EXISTS, S_REPLACE, 1)) continue;      /* felulirasi megerosites */
+        if (save && pk_fm == 2 && has_fmt()                                       /* szoveg: a formazas elvesz */
+            && !message(S_SAVETXT, S_TXTLOSS, S_TXTASK, 1)) continue;
+        strncpy(filename, buf, 16);             /* jovahagyva : a dokumentum uj neve (lemezen 16 jegyu ; SD-n a cimsor a SD_NAME-bol rajzol) */
+        filename[16] = 0;
+        if (sd_pk) {
+            strcpy(SD_NAME, sd_cand);
+            sd_conv(sd_title, (unsigned char *)SD_NAME, 26);
+            petscii_to_text(sd_title, sd_title);
+        }
+        sd_sel = sd_pk;
+        fmt_sel = pk_fm;
+        pk_btn = sd_pk = 0;
+        return sel;
+    }
+    strcpy(SD_PATH, sv);
+    pk_btn = sd_pk = 0;
+    return 0;
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned char pick_file(const char *title, unsigned char newbtn) { ovl_load(7); return pick_file_(title, newbtn); }
+static unsigned char choose(const char *title, unsigned char save) { ovl_load(7); return file_choose_(title, save); }
 
 /* Nom de fichier : choix dans la liste (ecrase) ou saisie ("Nouveau..."). */
 static unsigned char ask_name(const char *title, char *dest)
@@ -1539,6 +1858,7 @@ static unsigned char fit_check(dpos bytes, const char *name)
     dpos nb = (bytes + 253) / 254;
     unsigned need = nb > 60000UL ? 60000u : (unsigned)nb;
     char *b;
+    if (sd_on) return 1;
     for (;;) {
         scan_dir(name);
         strcpy(cmdname, "@0:");
@@ -1598,7 +1918,7 @@ static void save_doc(void)
 #define HEADLEN 6
 #endif
 #ifdef RTF
-    if (rtf_doc && filename[0]) SD_R(1);          /* un document RTF s'enregistre en RTF */
+    if (doc_fmt && filename[0]) SD_R(doc_fmt == 1 ? 1 : 3);   /* RTF / texte : meme format, meme endroit */
 #endif
     if (!filename[0] && !ask_filename()) SD_R(0);
     memcpy(head, "PLM2", 4);
@@ -1619,17 +1939,17 @@ static void save_doc(void)
     strcat(cmdname, ",S,W");
 #endif
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
-        cbm_write(2, head, HEADLEN);
+    if (fo_w() == 0) {
+        fw(head, HEADLEN);
 #ifdef REU
         write_reu(0UL, win_base);
 #endif
-        cbm_write(2, text, doclen);
+        fw(text, doclen);
 #ifdef REU
         pg_add(doclen);
         write_reu(suf_end - suf_len, suf_len);
 #endif
-        cbm_close(2);
+        fc();
     }
     disk_busy(0);
 #ifdef REU
@@ -1644,12 +1964,25 @@ static void save_doc(void)
 #ifdef REU
 #pragma rodata-name (pop)
 #pragma code-name (pop)
+#ifdef RTF
+static void save_as(void);
+static void txt_strip(void);
+#endif
 static void save_doc(void)
 {
     unsigned char r;
+#ifdef RTF
+    if (!filename[0]) { save_as(); return; }                /* nouveau document : le selecteur (format, disque ou SD) */
+#endif
     ovl_load(6);
     r = save_doc_();
     if (r == 1) rtf_write(filename);
+    else if (r == 3) {                          /* texte seul : la mise en forme se perd (avertissement), puis disparait de l'ecran */
+        r = has_fmt();
+        if (r && !message(S_SAVETXT, S_TXTLOSS, S_TXTASK, 1)) return;
+        txt_write(filename);
+        if (op_ok && r) txt_strip();
+    }
     else if (r == 2) bck_saved();
 }
 #endif
@@ -1668,8 +2001,11 @@ static void new_doc(void)
     style = 0;
     dirty = 0;
     filename[0] = 0;
+#ifdef REU
+    sd_on = 0;
+#endif
 #ifdef RTF
-    rtf_doc = 0;
+    doc_fmt = 0;
 #endif
 #ifdef REU
     jr_ok = 0;
@@ -2011,7 +2347,7 @@ static unsigned char load_big(dpos n)
     pg_begin(S_LOADING, n);
     for (; n; n -= k, dst += k) {
         k = n > 256 ? 256 : (unsigned)n;
-        if ((unsigned)cbm_read(2, outbuf, k) != k) { pg_end(); return 0; }
+        if ((unsigned)fr(outbuf, k) != k) { pg_end(); return 0; }
         note_marks(outbuf, k, suf_len - n);
         reu_move(0, outbuf, dst, k);
         pg_add(k);
@@ -2039,18 +2375,23 @@ static void load_named(void)
     unsigned char head[6], ok = 1;
     unsigned n;
 #endif
+#ifdef REU
+    disk_busy(1);
+    if (fo_r(filename) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+#else
     strcpy(cmdname, filename);
     strcat(cmdname, ",S,R");
     disk_busy(1);
     if (cbm_open(2, 8, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
-#ifdef RTF
-    rtf_doc = 0;
 #endif
-    cbm_read(2, head, 6);
+#ifdef RTF
+    doc_fmt = 0;
+#endif
+    fr(head, 6);
     n = head[4] | (head[5] << 8);
 #ifdef REU
     if (!memcmp(head, "PLM3", 4)) {
-        cbm_read(2, head + 6, 2);
+        fr(head + 6, 2);
         n |= ((dpos)head[6] << 16) | ((dpos)head[7] << 24);
     }
     win_base = suf_len = lines_before = 0; lines_exact = 1;
@@ -2061,7 +2402,7 @@ static void load_named(void)
     } else
 #endif
     if (!memcmp(head, "PLM2", 4) && n <= MAXDOC) {
-        cbm_read(2, text, (unsigned)n);
+        fr(text, (unsigned)n);
         doclen = (unsigned)n;
 #ifndef REU
     } else if (!memcmp(head, "PLM1", 4) && n <= MAXDOC) {
@@ -2070,7 +2411,7 @@ static void load_named(void)
     } else {
         ok = 0;
     }
-    cbm_close(2);
+    fc();
     disk_busy(0);
     if (!ok) {
         doclen = 0;
@@ -2097,46 +2438,40 @@ static void load_named(void) { ovl_load(6); load_named_(); }
 #endif
 
 #ifdef RTF
-/* Le fichier "filename" est-il du RTF ? (sinon : format Plume) */
-static unsigned char file_is_rtf(void)
+/* Format du fichier "filename" (disque ou SD) d'apres son contenu : 0 Plume, 1 RTF, 2 texte */
+static unsigned char file_kind(void)
 {
-    unsigned char r = 0;
-    strcpy(cmdname, filename);
-    strcat(cmdname, ",S,R");
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
-        if (cbm_read(2, outbuf, 5) == 5 && !memcmp(outbuf, "{\\rtf", 5)) r = 1;
-        cbm_close(2);
+    unsigned char r = 2;
+    if (fo_r(filename) == 0) {
+        if (fr(outbuf, 5) == 5) {
+            if (!memcmp(outbuf, "{\\rtf", 5)) r = 1;
+            else if (!memcmp(outbuf, "PLM", 3)) r = 0;
+        }
+        fc();
     }
     return r;
+}
+
+/* Charge "filename" (disque ou SD) dans le format que son contenu indique. */
+static void load_any(void)
+{
+    unsigned char k = file_kind();
+    if (k && !reu_on) { message(S_OPENRTF, S_NEEDREU, 0, 0); return; }
+    if (k == 1) rtf_open();
+    else if (k == 2) txt_open();
+    else load_named();
 }
 #endif
 
 #ifdef REU
 static void open_doc(void)
 {
-    unsigned char sel;
     if (dirty && !message(S_OPEN, S_LOSE, 0, 1)) return;
-    fpage = 0;
-    scan_dir(0);
-    if (!nfiles) {
-        if (disk_status() >= 20) show_disk_error(); else message(S_OPEN, S_NOFILES, 0, 0);
-        return;
-    }
-    sel = pick_file(S_PICK, 0);
-    if (sel < 254) {
-        io_hide();
-        strcpy(filename, names[sel]);
-        io_show();
+    if (choose(S_PICK, 0) == 1) {
+        sd_on = sd_sel;
         op_ok = 0;
-#ifdef RTF
-        if (file_is_rtf()) {
-            if (reu_on) rtf_open(); else message(S_OPENRTF, S_NEEDREU, 0, 0);
-        } else
-#endif
-        load_named();
-#ifdef REU
-        if (op_ok) bck_loaded();
-#endif
+        load_any();
+        if (op_ok) bck_loaded(); else { sd_on = 0; filename[0] = 0; }
     }
     redraw_all();
 }
@@ -2761,9 +3096,9 @@ static void paste(void)
    La selection et la suite du texte sont deplacees en haut du tampon, puis la
    selection est reecrite en un seul passage avec ses nouveaux marqueurs. */
 #ifdef REU
-/* apply_style est dans l'overlay 3 (il libere de la RAM) ; la version residente le charge d'abord. */
-#pragma code-name (push, "OVERLAY3")
-#pragma rodata-name (push, "OVERLAY3")
+/* apply_style est dans l'overlay 8 (il libere de la RAM) ; la version residente le charge d'abord. */
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
 #define APPLY_STYLE apply_style_ov
 #else
 #define APPLY_STYLE apply_style
@@ -2838,7 +3173,7 @@ static void APPLY_STYLE(unsigned char bit)
 #ifdef REU
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void apply_style(unsigned char bit) { ovl_load(3); apply_style_ov(bit); }
+static void apply_style(unsigned char bit) { ovl_load(8); apply_style_ov(bit); }
 #endif
 
 /* La recherche est dans l'overlay 2 (avec l'impression). */
@@ -2978,10 +3313,12 @@ static void r_flush(void)
     doclen = 0;
 }
 
+static dpos rlim, spos;                         /* limite du texte converti (SD : debut du fichier copie dans le REU) ; position de lecture */
+
 static void r_emit(unsigned char c)
 {
     if (doclen >= MAXDOC - 1000u) r_flush();
-    if (win_base + doclen + 4096 >= suf_end) { rfull = 1; return; }
+    if (win_base + doclen + 4096 >= rlim) { rfull = 1; return; }
     text[doclen++] = c;
 }
 
@@ -3043,6 +3380,29 @@ static unsigned char r_hex(unsigned char c)
 
 #define R_ALPHA(c) (((c) | 32) >= 'a' && ((c) | 32) <= 'z')
 
+/* Texte seul (UTF-8 ou ASCII) : fin de ligne CR, LF ou CR LF -> CR ; tabulation -> espace. */
+static void t_byte(unsigned char c)
+{
+    if (rhex) {                                 /* octet de suite UTF-8 */
+        if ((c & 0xC0) == 0x80) {
+            rnum = (rnum << 6) | (c & 0x3F);
+            if (--rhex) return;
+            if (rnum != 0xFEFF) r_uni(rnum);    /* pas de BOM */
+            return;
+        }
+        rhex = 0;                               /* sequence interrompue : c est traite normalement */
+    }
+    if (c == 10 && rneg) { rneg = 0; return; }  /* LF apres CR */
+    rneg = 0;
+    if (c == 13) { rneg = 1; r_put(CR); }
+    else if (c == 10) r_put(CR);
+    else if (c == 9) r_put(' ');
+    else if (c < 32) return;
+    else if (c < 128) r_put(c);
+    else if (c >= 0xE0) { rnum = c & 0x0F; rhex = 2; }
+    else if (c >= 0xC0) { rnum = c & 0x1F; rhex = 1; }
+}
+
 /* Un octet du fichier ; rst : 0 texte, 1 apres \, 2 mot, 3 nombre, 4-5 \'hh */
 static void r_byte(unsigned char c)
 {
@@ -3094,27 +3454,43 @@ static void load_rtf(void)
     unsigned k;
     dpos off, total;
     int n;
-    scan_dir(filename);                         /* la taille du fichier (en blocs) pour la barre de progression */
-    strcpy(cmdname, filename);
-    strcat(cmdname, ",S,R");
+    rlim = suf_end;
+    if (!sd_on) scan_dir(filename);             /* la taille du fichier (en blocs) pour la barre de progression */
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+    if (fo_r(filename) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+    if (sd_on) {                                /* SD : tout le fichier d'un coup dans le REU (DMA), traite ensuite */
+        sdk(sd_size());
+        if (SD_SIZE + 8192UL > suf_end) { fc(); disk_busy(0); message(S_OPENRTF, S_FULL, 0, 0); return; }
+        rlim = suf_end - SD_SIZE;
+        SD_REU = rlim;
+        SD_RLEN = SD_SIZE;
+        sdk(sd_loadreu());
+        fc();
+        spos = 0;
+        blk_old = (unsigned)(SD_SIZE >> 8);
+    }
     win_base = suf_len = lines_before = 0; lines_exact = 1;
     win_style = sc_ok = doclen = 0;
     first_mark = 0xFFFFFFFFUL;
     pg_begin(S_LOADING, (dpos)blk_old << 8);
-    rcur = remit = rdepth = rfirst = rst = rskip = rfull = 0;
+    rcur = remit = rdepth = rfirst = rst = rskip = rfull = rhex = rneg = 0;
     ruc = 1;
-    while ((n = cbm_read(2, outbuf, 256)) > 0) {
+    for (;;) {
+        if (sd_on) {
+            n = SD_SIZE - spos > 256 ? 256 : (int)(SD_SIZE - spos);
+            if (n > 0) { reu_move(1, outbuf, rlim + spos, n); spos += n; }
+        } else n = cbm_read(2, outbuf, 256);
+        if (n <= 0) break;
         if (first) {
             first = 0;
-            if (n < 5 || memcmp(outbuf, "{\\rtf", 5)) { ok = 0; break; }
+            if (!rtxt && (n < 5 || memcmp(outbuf, "{\\rtf", 5))) { ok = 0; break; }
         }
-        for (k = 0; k < (unsigned)n; ++k) r_byte(outbuf[k]);
+        if (rtxt) for (k = 0; k < (unsigned)n; ++k) t_byte(outbuf[k]);
+        else for (k = 0; k < (unsigned)n; ++k) r_byte(outbuf[k]);
         pg_add((unsigned)n);
         if (rfull) break;
     }
-    cbm_close(2);
+    if (!sd_on) cbm_close(2);
     disk_busy(0);
     pg_end();
     op_ok = ok;
@@ -3129,7 +3505,7 @@ static void load_rtf(void)
         }
         suf_len = total;
         win_base = doclen = 0;
-        rtf_doc = 1;                            /* garde le nom : F1 enregistre en RTF au meme endroit */
+        doc_fmt = rtxt ? 2 : 1;                 /* garde le nom : F1 enregistre dans le meme format au meme endroit */
     } else {
         message(S_OPENRTF, S_BADRTF, 0, 0);
         filename[0] = 0;
@@ -3169,16 +3545,18 @@ static char rtfname[22];
 
 static void rtf_put(unsigned n)
 {
-    if (rtf_dry) rtf_tot += n; else { cbm_write(2, outbuf, n); pg_add(n); }
+    if (rtf_dry) rtf_tot += n; else { fw(outbuf, n); pg_add(n); }
 }
 
 static void rtf_body(void)
 {
     unsigned char *wbuf = outbuf + 400;          /* entree : 64 octets en fin de outbuf, sortie en debut */
     unsigned char *o, c, i, ws = 0, ns;
+    unsigned u;
     dpos g, tot;
     unsigned k;
-    o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0\\fs24 ");
+    o = outbuf;
+    if (!rtf_txt) o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0\\fs24 ");
     tot = doc_total();
     for (g = 0; g < tot; g += k) {
         k = tot - g > 64 ? 64 : (unsigned)(tot - g);
@@ -3187,6 +3565,7 @@ static void rtf_body(void)
             c = wbuf[i];
             if (o > outbuf + 300) { rtf_put((unsigned)(o - outbuf)); o = outbuf; }
             if (IS_MARK(c)) {
+                if (rtf_txt) continue;
                 ns = c & 7;
                 if (ns == ws) continue;
                 if ((ns ^ ws) & BOLD) o = w_str(o, ns & BOLD ? "\\b" : "\\b0");
@@ -3195,18 +3574,23 @@ static void rtf_body(void)
                 *o++ = ' ';
                 ws = ns;
             } else if (c == CR) {
-                o = w_str(o, "\\par\n");
+                o = w_str(o, rtf_txt ? "\n" : "\\par\n");
             } else if (c >= 128) {
-                o = w_str(o, "\\u");
-                o = (unsigned char *)utoa_simple((char *)o, c - 128u < sizeof ucode_w / 2 ? ucode_w[c - 128] : '?');
-                *o++ = '?';
+                u = c - 128u < sizeof ucode_w / 2 ? ucode_w[c - 128] : '?';
+                if (!rtf_txt) {
+                    o = w_str(o, "\\u");
+                    o = (unsigned char *)utoa_simple((char *)o, u);
+                    *o++ = '?';
+                } else if (u < 0x80) *o++ = (unsigned char)u;
+                else if (u < 0x800) { *o++ = (unsigned char)(0xC0 | (u >> 6)); *o++ = (unsigned char)(0x80 | (u & 0x3F)); }
+                else { *o++ = (unsigned char)(0xE0 | (u >> 12)); *o++ = (unsigned char)(0x80 | ((u >> 6) & 0x3F)); *o++ = (unsigned char)(0x80 | (u & 0x3F)); }
             } else if (c >= 32) {
-                if (c == '\\' || c == '{' || c == '}') *o++ = '\\';
+                if (!rtf_txt && (c == '\\' || c == '{' || c == '}')) *o++ = '\\';
                 *o++ = c;
             }
         }
     }
-    *o++ = '}';
+    if (!rtf_txt) *o++ = '}';
     rtf_put((unsigned)(o - outbuf));
 }
 
@@ -3220,9 +3604,9 @@ static unsigned char write_rtf(char *name)
     if (!fit_check(rtf_tot, name)) return 0;
     pg_begin(S_SAVING, rtf_tot);
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
+    if (fo_w() == 0) {
         rtf_body();
-        cbm_close(2);
+        fc();
     }
     disk_busy(0);
     pg_end();
@@ -3233,23 +3617,11 @@ static unsigned char write_rtf(char *name)
     return 1;
 }
 
-static void save_rtf(void)
-{
-    strcpy(rtfname, filename);
-    if (!ask_name(S_SAVERTF, rtfname)) return;
-    if (!strchr(rtfname, '.') && strlen(rtfname) <= 12) strcat(rtfname, ".\x52\x54\x46");   /* ".rtf" en PETSCII */
-    if (write_rtf(rtfname)) {                   /* le document porte maintenant ce nom, en RTF */
-        strcpy(filename, rtfname);
-        rtf_doc = 1;
-        shown_dirty = 255;
-        draw_status();
-    }
-}
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
 static void rtf_open(void) { ovl_load(1); load_rtf(); }
-static void rtf_save(void) { op_ok = 0; ovl_load(6); save_rtf(); if (op_ok) bck_saved(); }
+static void txt_open(void) { rtxt = 1; rtf_open(); rtxt = 0; }
 static unsigned char rtf_write(char *name)
 {
     unsigned char r;
@@ -3257,6 +3629,14 @@ static unsigned char rtf_write(char *name)
     ovl_load(6);
     r = write_rtf(name);
     if (op_ok) bck_saved();
+    return r;
+}
+static unsigned char txt_write(char *name)
+{
+    unsigned char r;
+    rtf_txt = 1;
+    r = rtf_write(name);
+    rtf_txt = 0;
     return r;
 }
 #endif
@@ -3271,6 +3651,20 @@ static unsigned char rtf_write(char *name)
 static char bckname[20];
 static dpos base_len;                           /* le document tel qu'il est au fichier de base */
 static unsigned base_sig;
+
+/* SD : le nom du fichier devient celui du .bck (on = 1), puis redevient le nom du document (on = 0). */
+static void sd_bck(unsigned char on)
+{
+    char *e;
+    if (on) {
+        e = strrchr(SD_NAME, '.');
+        if (!e) e = SD_NAME + strlen(SD_NAME);
+        SD_PE = (unsigned char)(e - SD_NAME);
+        strncpy(SD_SV, e, 7);
+        SD_SV[7] = 0;
+        strcpy(e, ".bck");
+    } else strcpy(SD_NAME + SD_PE, SD_SV);
+}
 
 static void make_bck(void)
 {
@@ -3314,6 +3708,7 @@ static void base_set(unsigned char keep)
 /* Efface le .bck (cmdname recoit la commande de suppression). */
 static void bck_del(void)
 {
+    if (sd_on) { sd_bck(1); sd_delete(); sd_bck(0); sd_bad = 0; return; }
     make_bck();
     strcpy(cmdname, "S0:");
     strcat(cmdname, bckname);
@@ -3334,6 +3729,7 @@ static void quick_save_(void)
     if (jr_len == jb) { bck_del(); dirty = 0; shown_dirty = 255; draw_status(); return; }
     make_bck();
     if (!fit_check(13UL + jr_len - jb, bckname)) return;
+    if (sd_on) sd_bck(1);
     memcpy(hd, "PBK3", 4);
     hd[4] = (unsigned char)base_len; hd[5] = (unsigned char)(base_len >> 8);
     hd[6] = (unsigned char)(base_len >> 16); hd[7] = (unsigned char)(base_len >> 24);
@@ -3341,11 +3737,12 @@ static void quick_save_(void)
     hd[10] = (unsigned char)(jr_len - jb); hd[11] = (unsigned char)((jr_len - jb) >> 8); hd[12] = (unsigned char)((jr_len - jb) >> 16);
     pg_begin(S_SAVING, jr_len - jb);
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
-        cbm_write(2, hd, 13);
+    if (fo_w() == 0) {
+        fw(hd, 13);
         write_reu(JR_BASE + jb, jr_len - jb);
-        cbm_close(2);
+        fc();
     }
+    if (sd_on) sd_bck(0);
     disk_busy(0);
     pg_end();
     if (disk_status() >= 20) { show_disk_error(); return; }
@@ -3362,7 +3759,7 @@ static void bck_replay(dpos total)
     static unsigned del, ins, k;
     static dpos done;
     done = 0;
-    while (done + 7u <= total && cbm_read(2, h, 7) == 7) {
+    while (done + 7u <= total && fr(h, 7) == 7) {
         gp = h[0] | ((dpos)h[1] << 8) | ((dpos)h[2] << 16);
         del = h[3] | ((h[4] & 0x3F) << 8);
         ins = h[5] | (h[6] << 8);
@@ -3377,7 +3774,7 @@ static void bck_replay(dpos total)
             k = ins > 400 ? 400 : ins;
             if (MAXDOC - doclen < ROOM + 400 || gp < win_base || gp > win_base + doclen)
                 relocate(para_start(gp > 400 ? gp - 400 : 0));      /* avant de lire : para_start se sert d'outbuf */
-            if (cbm_read(2, outbuf, k) != (int)k) return;
+            if (fr(outbuf, k) != (int)k) return;
             if (!replace((unsigned)(gp - win_base), (unsigned)(gp - win_base), outbuf, k, 0)) return;
             gp += k;
             ins -= k;
@@ -3395,11 +3792,10 @@ static void bck_loaded_(void)
     if (!jr_ok) return;
     if (bck_skip) return;                       /* RESTORE+RUN/STOP : le fichier seul */
     make_bck();
-    strcpy(cmdname, bckname);
-    strcat(cmdname, ",S,R");
+    if (sd_on) sd_bck(1);
     disk_busy(1);
-    if (cbm_open(2, 8, 2, cmdname) == 0) {
-        if (cbm_read(2, hd, 13) == 13 && !memcmp(hd, "PBK", 3) && (hd[3] == '2' || hd[3] == '3')) {
+    if (fo_r(bckname) == 0) {
+        if (fr(hd, 13) == 13 && !memcmp(hd, "PBK", 3) && (hd[3] == '2' || hd[3] == '3')) {
             total = hd[10] | ((dpos)hd[11] << 8) | ((dpos)hd[12] << 16);
             /* PBK2 : sa signature etait faussee (voir doc_sig), seule la longueur compte */
             ok = base_len == (hd[4] | ((dpos)hd[5] << 8) | ((dpos)hd[6] << 16) | ((dpos)hd[7] << 24))
@@ -3417,8 +3813,9 @@ static void bck_loaded_(void)
                 good = 1;
             }
         }
-        cbm_close(2);
+        fc();
     }
+    if (sd_on) sd_bck(0);
     disk_busy(0);
     disk_status();                              /* efface une erreur "fichier absent" */
     if (good) {
@@ -3651,6 +4048,40 @@ static void redo(void) { ovl_load(4); redo_(); }
 static void quick_save(void) { ovl_load(3); quick_save_(); }
 static void bck_saved(void) { ovl_load(3); bck_saved_(); }
 static void bck_loaded(void) { ovl_load(3); bck_loaded_(); }
+
+#ifdef RTF
+/* Texte seul : apres l'ecriture, la mise en forme disparait aussi de l'ecran et de la memoire : on recharge le fichier ecrit. */
+static void txt_strip(void)
+{
+    op_ok = 0;
+    load_any();
+    if (op_ok) bck_loaded();
+    redraw_all();
+    op_ok = 1;
+}
+
+/* Enregistrer sous : le selecteur donne le nom, l'endroit (disque / SD) et le format (PLM, RTF, TXT). */
+static void save_as(void)
+{
+    unsigned char r, was = sd_on, wf = doc_fmt, f, lose = has_fmt();   /* lose : van formazas */
+    r = choose(S_SAVEAS, 1);
+    redraw_all();
+    if (!r) return;
+    f = fmt_sel;
+    if (f && !reu_on) { message(S_SAVEAS, S_NEEDREU, 0, 0); return; }
+    sd_on = sd_sel;
+    op_ok = 0;
+    if (f == 1) rtf_write(filename);
+    else if (f == 2) txt_write(filename);
+    else { doc_fmt = 0; save_doc(); op_ok = !dirty; }
+    if (op_ok) {
+        doc_fmt = f;
+        if (f == 2 && lose) txt_strip();        /* a formazas a kepernyorol es a memoriabol is eltunik */
+        shown_dirty = 255;                      /* a cim (az uj nev) azonnal frissul */
+        draw_status();
+    } else { sd_on = was; doc_fmt = wf; }
+}
+#endif
 /* RESTORE : annuler ; avec Shift : refaire ; avec RUN/STOP : le fichier revient du disque, sans le .bck
    (le .bck reste sur le disque) ; Shift + RUN/STOP : le fichier et son .bck rejoue. */
 static void reload_doc(unsigned char with_bck)
@@ -3658,7 +4089,7 @@ static void reload_doc(unsigned char with_bck)
     if (!filename[0] || !jr_ok) return;
     if (dirty && !message(with_bck ? S_RELOADB : S_RELOAD, S_RELOAD1, S_LOSE, 1)) return;
     op_ok = 0;
-    if (file_is_rtf()) { if (reu_on) rtf_open(); } else load_named();
+    load_any();
     if (op_ok) { bck_skip = !with_bck; bck_loaded(); bck_skip = 0; }
     redraw_all();
 }
@@ -3690,7 +4121,34 @@ static void cycle_theme(void)
 #endif
 }
 
-static unsigned char run_menu(unsigned char m)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+#ifdef REU
+/* Nev, verzio, keszitok (tobb sor, mint a message()-ben). */
+static void about_(void)
+{
+    unsigned char r = DLG_ROW + 2;
+    dialog(12, S_ABOUT);
+    put_text(DLG_X + 16, r++, S_ABOUT1, BOLD);
+    put_text(DLG_X + 16, r++, S_ABOUT2, 0);
+    put_text(DLG_X + 16, r++, S_ABOUT3, 0);
+    put_text(DLG_X + 16, r++, S_ABOUT5, 0);
+#ifdef KBD_HU
+    put_text(DLG_X + 16, r++, S_ABOUT6, 0);
+#endif
+    put_text(DLG_X + 16, r, S_ABOUT4, 0);
+    button(BTN_OK_X, DLG_ROW + 9, S_OK);
+    for (;;) {
+        poll_mouse();
+        key = read_key();
+        if (key == CR || key == 3 || on_button(BTN_OK_X, DLG_ROW + 9)) break;
+    }
+    dialog_close();
+}
+#endif
+static unsigned char run_menu_(unsigned char m)
 {
     unsigned char n = 0, i, hover = 255, row, choice = 255;
     unsigned x0 = menu_x[m], width = 0, t;
@@ -3741,6 +4199,14 @@ static unsigned char run_menu(unsigned char m)
     place_cursor();
     return choice;
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m); }
+static void about(void) { ovl_load(8); about_(); }
+#else
+#define run_menu run_menu_
+#endif
 
 static void do_menu(unsigned char m, unsigned char item)
 {
@@ -3750,15 +4216,11 @@ static void do_menu(unsigned char m, unsigned char item)
         if (item == 0 && (!dirty || message(S_NEW, S_LOSE, 0, 1))) { new_doc(); redraw_all(); }
         if (item == 1) open_doc();
 #ifdef RTF
-        if (item == 2) f1_save();               /* sauvegarde rapide */
-        if (item == 3) save_doc();              /* enregistrement complet */
-        if (item == 4 && ask_filename()) { rtf_doc = 0; save_doc(); }
-        if (item == 5) {
-            if (!reu_on) message(S_SAVERTF, S_NEEDREU, 0, 0);
-            else rtf_save();
-        }
-        if (item == 6) reload_doc(0);           /* le fichier du disque, sans le .bck */
-        if (item == 7) reload_doc(1);           /* le fichier et son .bck */
+        if (item == 2) reload_doc(0);           /* le fichier du disque / de la SD, sans le .bck */
+        if (item == 3) reload_doc(1);           /* le fichier et son .bck */
+        if (item == 4) f1_save();               /* sauvegarde rapide */
+        if (item == 5) save_doc();              /* enregistrement complet */
+        if (item == 6) save_as();
 #else
         if (item == 2) save_doc();
         if (item == 3 && ask_filename()) save_doc();
@@ -3797,7 +4259,11 @@ static void do_menu(unsigned char m, unsigned char item)
 #elif defined(REU)
         if (item == 1) { sound_on ^= 1; key_click(); break; }
 #endif
+#ifdef REU
+        about();
+#else
         message(S_ABOUT, S_ABOUT1, S_ABOUT3, 0);
+#endif
         break;
     }
 }
@@ -4374,9 +4840,13 @@ void main(void)
     hun_set(1);                                         /* clavier HUN au depart */
     draw_status();
 #endif
+    *(unsigned char *)0x03BC = 0;                       /* led.s : 1 = l'Ultimate n'a pas repondu, plus d'essais */
     led_theme(4);                                       /* molette : sensibilite 1 */
     led_theme(theme_no);                                /* leds : couleur du theme de depart */
     led_theme(6);                                       /* clavier eteint : rien a enregistrer */
+    led_theme(7);                                       /* module SD (src/sd.s) en $CC00 */
+    sd_ok = sd_probe() && !sd_getpath();                /* Ultimate present ET sa cible DOS repond (ancien firmware : pas de SD) */
+    SD_PATH[0] = 0;                                     /* le repertoire de depart se choisit au premier usage */
 #endif
     /* repere pour les outils de test : adresses du texte et de sa longueur */
     *(unsigned *)0x02AB = (unsigned)text;

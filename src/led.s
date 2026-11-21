@@ -19,11 +19,18 @@ gotf   = $03B6
 theme  = $03B7
 tmo    = $03B8          ; 3 bajt
 tmpy   = $03BB
+dead   = $03BC          ; 1 : az Ultimate nem valaszolt idoben, a munkamenet hatralevo reszeben nem probalkozunk (a foprogram nullazza indulaskor)
 
         .segment "CODE"
-entry:  sta theme
+entry:  cmp #7
+        bne :+
+        jmp sdcopy              ; A = 7: az SD-fajlkezelo kimasolasa a $C700-ra (src/sd.s)
+:       sta theme
         lda $DF1D               ; UCI azonosito: $C9, ha van Ultimate (egyebkent: kilepes)
         cmp #$C9
+        beq :+
+        rts
+:       lda dead
         beq :+
         rts
 :
@@ -132,8 +139,36 @@ done:   pla
         plp
         rts
 
+sdcopy: php
+        sei
+        lda $01
+        pha
+        lda #$37
+        sta $01
+        lda #61                 ; SD_BANK
+        sta $DE00
+        ldx #0
+@c:     lda $8000,x
+        sta $C700,x
+        lda $8100,x
+        sta $C800,x
+        lda $8200,x
+        sta $C900,x
+        lda $8300,x
+        sta $CA00,x
+        inx
+        bne @c
+        lda #$80
+        sta $DE00
+        pla
+        sta $01
+        plp
+        rts
+
 ; X = 0: varakozas idle-re, X = 1: adatallapotra
 waitstate:
+        lda dead
+        bne @ok
         lda #0
         sta tmo
         sta tmo+1
@@ -155,9 +190,14 @@ waitstate:
         bne @l
         dec tmo+2
         bne @l
+        lda #1                  ; idotullepes: tobbet nem varunk
+        sta dead
 @ok:    rts
 
-send:   ldx #0
+send:   lda dead
+        beq :+
+        rts
+:       ldx #0
         jsr waitstate
         ldx #0
 @w:     lda cmdbuf,x

@@ -1,6 +1,6 @@
 # Plume : traitement de texte graphique pour Commodore 64.
 # make -> build/plume-fr.crt, plume-en.crt, plume-dk.crt et plume-hu.crt (et les .prg)
-# L'edition REU (Plume 2.2e, enhanced) donne build/plume-XX-2.2e.crt
+# L'edition REU (PlumE REU 26a, enhanced) donne build/plumereu-XX-26a.crt
 # dk : menus anglais, clavier danois (æ ø å sur : ; @)
 # hu : menus anglais, clavier hongrois (á é í ó ö ő ú ü ű sous C=)
 LANGS := fr en dk hu
@@ -8,7 +8,8 @@ SRC   := src/main.c src/gfx.s src/font.s
 PAGES  = $(shell python3 -I -c "import os,sys;print((os.path.getsize(sys.argv[1])-2+255)//256)" $<)
 
 .PHONY: all clean
-all: $(foreach l,$(LANGS),build/plume-$(l).crt build/plume-$(l)-2.2e.crt)
+VER := 26a
+all: $(foreach l,$(LANGS),build/plume-$(l).crt build/plumereu-$(l)-$(VER).crt)
 
 src/font.s: fonts/unscii-8.hex tools/mkfont.py
 	python3 -I tools/mkfont.py $< $@
@@ -46,11 +47,15 @@ build/led.bin: src/led.s src/led.cfg
 	ca65 -o build/led.o src/led.s
 	ld65 -C src/led.cfg -o build/led.bin build/led.o
 
-build/plume-%-2.2e.crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin
+build/sd.bin: src/sd.s src/sd.cfg
+	ca65 -o build/sd.o src/sd.s
+	ld65 -C src/sd.cfg -o build/sd.bin build/sd.o
+
+build/plumereu-%-$(VER).crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin build/sd.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
 	OV=""; for f in $<.?; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
-	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME 2.2e $* REU" md 62=build/led.bin $$OV
+	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME-E REU $(VER) $*" md 61=build/sd.bin 62=build/led.bin $$OV
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*.o crt.s

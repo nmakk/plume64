@@ -95,6 +95,23 @@ _reu_detect:
 no:     lda #0
         rts
 
+; Az SD-fajlkezelo (src/sd.s) belepesei a $C700-on (led_theme(7) masolja oda indulaskor).
+        .export _sd_probe, _sd_open, _sd_close, _sd_read, _sd_write, _sd_dirbeg, _sd_dirnext
+        .export _sd_delete, _sd_chdir, _sd_getpath, _sd_size, _sd_loadreu, _sd_savereu
+_sd_probe   = $C700
+_sd_open    = $C703
+_sd_close   = $C706
+_sd_read    = $C709
+_sd_write   = $C70C
+_sd_dirbeg  = $C70F
+_sd_dirnext = $C712
+_sd_delete  = $C718
+_sd_chdir   = $C71B
+_sd_getpath = $C71E
+_sd_size    = $C724
+_sd_loadreu = $C727
+_sd_savereu = $C72A
+
 ; led_theme(theme) : couleur des leds selon le theme. Le code (src/led.s) est dans la
 ; banque 62 de la cartouche Magic Desk. ROML ($8000) masque la RAM pendant la copie,
 ; et ce code peut etre au-dessus de $8000 : la copie se fait donc depuis un petit

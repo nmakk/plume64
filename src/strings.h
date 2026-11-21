@@ -34,7 +34,11 @@
 #define S_PGRAPH     "Graphics (best)"
 #define S_PTEXT      "Text"
 #define S_PWIDE      "Wide text"
+#ifdef REU
+#define S_ABOUT      "About PlumE"
+#else
 #define S_ABOUT      "About Plume"
+#endif
 #define S_OK         "OK"
 #define S_CANCEL     "Cancel"
 #define S_FILENAME   "File name:"
@@ -69,6 +73,14 @@
 #define S_RESTORED   "Quick save restored."
 #define S_BCKBAD     "Quick save does not match file."
 #define S_BCKASK     "Apply it anyway?"
+#define S_SAVETXT    "Save as text"
+#define S_EXISTS     "The file already exists."
+#define S_REPLACE    "Replace it?"
+#define S_TXTLOSS    "Bold, italic and underline are lost."
+#define S_TXTASK     "Save anyway?"
+#define S_NOSD       "No C64 Ultimate found."
+#define S_SDLONG     "File name too long."
+#define S_SDPICK     "Choose a file on the SD card:"
 #define S_UNDO       "Undo"
 #define S_LOADING    "Loading..."
 #define S_SAVING     "Saving..."
@@ -85,19 +97,28 @@
 #define S_RELOADB    "Restore from .bck"
 #define S_RELOAD1    "Back to the file on disk."
 #ifdef REU
-#define S_VER        "2.2e"                  /* enhanced : RTF, gorgo, ledek */
+#define S_VER        "26a"                   /* PlumE REU : annee + lettre de la livraison */
+#define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"
+#define S_NAME       "Plume"
 #endif
 #ifdef KBD_DK
-#define S_ABOUT1     "Plume " S_VER " DK, word processor"
+#define S_ABOUT1     S_NAME " " S_VER " DK"
 #elif defined KBD_HU
-#define S_ABOUT1     "Plume " S_VER " HU, word processor"
+#define S_ABOUT1     S_NAME " " S_VER " HU"
 #else
-#define S_ABOUT1     "Plume " S_VER ", word processor"
+#define S_ABOUT1     S_NAME " " S_VER
 #endif
-#define S_ABOUT2     "for the Commodore 64."
+#ifdef REU
+#define S_ABOUT2     "Enhanced Plume for the C64 + REU."
+#define S_ABOUT3     "Plume: LABBEJ27."
+#define S_ABOUT5     "PlumE: Norbert Makk."
+#define S_ABOUT6     "HU keys: mkckOner."
+#else
+#define S_ABOUT2     "Word processor for the C64."
 #define S_ABOUT3     "2026 by LABBEJ27."
+#endif
 #define S_ABOUT4     "Font: unscii (public domain)."
 #else
 #define S_STYLEKEYS  "GIS"          /* Gras, Italique, Souligne */
@@ -123,7 +144,11 @@
 #define S_PGRAPH     "Graphique (accents)"
 #define S_PTEXT      "Texte"
 #define S_PWIDE      "Texte large"
+#ifdef REU
+#define S_ABOUT      C_AGRAVE " propos de PlumE"
+#else
 #define S_ABOUT      C_AGRAVE " propos de Plume"
+#endif
 #define S_OK         "OK"
 #define S_CANCEL     "Annuler"
 #define S_FILENAME   "Nom du fichier :"
@@ -158,6 +183,14 @@
 #define S_RESTORED   "Sauvegarde rapide restaur" C_EAIGU "e."
 #define S_BCKBAD     "Sauvegarde rapide diff" C_EAIGU "rente du fichier."
 #define S_BCKASK     "L'appliquer quand m" C_ECIRC "me ?"
+#define S_SAVETXT    "Texte seul"
+#define S_EXISTS     "Le fichier existe d" C_EAIGU "j" C_AGRAVE "."
+#define S_REPLACE    "Le remplacer ?"
+#define S_TXTLOSS    "Mise en forme perdue."
+#define S_TXTASK     "Continuer ?"
+#define S_NOSD       "Pas d'Ultimate."
+#define S_SDLONG     "Nom trop long."
+#define S_SDPICK     "Choisissez un fichier sur la SD :"
 #define S_UNDO       "Annuler"
 #define S_LOADING    "Chargement..."
 #define S_SAVING     "Enregistrement..."
@@ -173,9 +206,29 @@
 #define S_RELOAD     "Recharger le fichier"
 #define S_RELOADB    "Restaurer le .bck"
 #define S_RELOAD1    "Retour au fichier du disque."
-#define S_ABOUT1     "Plume 2.2, traitement de texte"
-#define S_ABOUT2     "pour Commodore 64."
+#ifdef REU
+#define S_VER        "26a"
+#define S_NAME       "PlumE REU"
+#else
+#define S_VER        "2.2"
+#define S_NAME       "Plume"
+#endif
+#ifdef KBD_DK
+#define S_ABOUT1     S_NAME " " S_VER " DK"
+#elif defined KBD_HU
+#define S_ABOUT1     S_NAME " " S_VER " HU"
+#else
+#define S_ABOUT1     S_NAME " " S_VER
+#endif
+#ifdef REU
+#define S_ABOUT2     "Plume enrichi pour C64 + REU."
+#define S_ABOUT3     "Plume : LABBEJ27."
+#define S_ABOUT5     "PlumE : Norbert Makk."
+#define S_ABOUT6     "Clavier HU : mkckOner."
+#else
+#define S_ABOUT2     "Traitement de texte C64."
 #define S_ABOUT3     "2026 par LABBEJ27."
+#endif
 #define S_ABOUT4     "Police : unscii (domaine public)."
 #endif
 

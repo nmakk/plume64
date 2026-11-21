@@ -1,18 +1,27 @@
-# Changes since Plume 2.2 (fork point `1f142d9`)
+# PlumE REU: changes since Plume 2.2 (fork point `1f142d9`)
 
-This fork adds a **REU edition** (Magic Desk cartridge, `build/plume-XX-2.2e.crt`, tested on a C64 Ultimate with a 16 MB REU) and many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in English and French in `README.md`.
+This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a REU is **PlumE REU**, versioned by year and letter (`26a` = the first release of 2026). It is based on Plume 2.2 by LABBEJ27 and is a separate project from the original Plume, whose goal is to stay small and run on an unexpanded C64. The REU edition is a Magic Desk cartridge (`build/plumereu-XX-26a.crt`, tested on a C64 Ultimate with a 16 MB REU) and also adds many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in English and French in `README.md`.
 
-Not yet merged: your later commits (2.3 HU "Hide idle pointer", the `dist/*.prg` programs). They conflict with this fork in `src/main.c`, `src/strings.h` and `README.md`; I can rebase on top of them, or split the work into smaller pull requests, whichever you prefer.
+The original Plume has since taken over two of the shared fixes (lost keystrokes, flicker-free line and status drawing). Nothing else of the original's later work (2.3 HU "Hide idle pointer", the `dist/*.prg` programs) is merged here.
+
+## 0. New in PlumE REU 26a
+- **Name and version**: PlumE REU 26a. The About box shows the name, version, authors (Plume: LABBEJ27, PlumE: Norbert Makk, HU keys: mkckOner) and the font credit; the *E* of the **PlumE** label at the top right has its own colour in each colour theme.
+- **C64 Ultimate file system**: Open, Save, Save as and Quick save work on the SD card, USB, Flash and the `/ftp/` entry (mounted FTP servers) through the Ultimate's command interface (UCI, DOS target), with a small module (`src/sd.s`) that lives at `$C700` and is copied from cartridge bank 61 at startup. A 250 KB RTF opens in about 12 seconds instead of minutes over the IEC serial bus. Plume checks at startup that the Ultimate's DOS target answers; if not (old firmware, not a C64 Ultimate) the *C64U* button is not shown and everything works on the disk as before.
+- **Three formats**: `.plm`, `.rtf` and `.txt` (UTF-8, LF). Open recognises the format from the content. Save and Quick save keep the document's own format and place. Saving as text warns when the document has formatting and then removes it from the screen and from memory, so the document is exactly the file.
+- **One file requester** for Open and Save as, with *Disk* / *C64U* place buttons and *PLM* / *RTF* / *TXT* format buttons (the document's current choice pressed, RTF for a new document). Folders with `..`, the last folder is remembered, long names are shortened in the middle with `~`, the Plume `.bck` files are hidden, a name typed without an extension gets the format's extension (on disk at most 12 characters without one), and replacing an existing file asks first. The *File* menu is shorter: New, Open, Reload, Restore .bck, Quick save, Save, Save as.
+- **Fix**: the quick save signature end sample was read from a wrong REU address (cc65 truncates nested `?:` on 32-bit values), so a valid `.bck` could be rejected on the next session. New `PBK3` format; `PBK2` files are still read (by length); a `.bck` that does not match asks whether to apply it anyway.
+- **LED time-out**: if the Ultimate's HTTP target does not answer in time, Plume stops trying for the rest of the session instead of freezing for seconds at each colour change.
+- **Layout**: the line tables are limited to 520 lines per window (was 950) to make room for the SD module; overlays 7 (file requester) and 8 (menus, styles) were added.
 
 ## 1. REU edition: big documents
 - **Documents in the REU**: 24-bit positions, up to ~15 MB of text; a sliding window in RAM loads automatically while editing (the original limit was 20,000 bytes). PLM3 format for documents over 64 KB.
 - **RTF import and export**; the RTF name, the title and F1 save back to the same RTF file.
-- **Unified Open**: one Open recognizes RTF and the native format; saving keeps the file's own format, and either can be chosen.
+- **Unified Open**: one Open recognizes the format from the content; saving keeps the file's own format (see section 0 for the three formats).
 - **Scrollbar** over the whole document; clicking above/below the thumb pages (repeats while held), dragging jumps anywhere.
 - **Find across the whole document** (F8 = next), including distant matches.
 - **Clipboard in the REU (256 KB) and document-wide selection**: *Select all* selects everything; cut, copy, paste and delete work on huge selections. A delete beyond the undo capacity asks for confirmation.
 - **Chunked printing** for large documents.
-- **File requester** (Open, Save as, Save as RTF): one column, block sizes, free blocks, paging every 13 files; **capacity check before saving**; **disk-full dialog** (delete a file or swap the disk, so a save cannot silently fail).
+- **File requester** (Open, Save as): one column, block sizes, free blocks, paging every 13 files; **capacity check before saving**; **disk-full dialog** (delete a file or swap the disk, so a save cannot silently fail).
 - **Progress bar** in the status line during load and save (Plume files, RTF, quick save).
 - **Line numbers**: after a jump the number is an estimate and is marked `~` (smoothed bytes-per-line estimate); exact again at the start of the document.
 - **Overlay system**: RTF, printing, quick save, undo, clipboard and file I/O live in separate cartridge banks and load into a shared RAM area; the LED code is in bank 62.
