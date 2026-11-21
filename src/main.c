@@ -5051,8 +5051,8 @@ static void handle_key(unsigned char k)
 #ifdef REU
 /* Clic ou glissement dans l'ascenseur : la fenetre va a cet endroit du document. */
 /* La fenetre va a la position y (0..SBAR_H-16) de l'ascenseur. */
-#pragma code-name (push, "OVERLAY6")
-#pragma rodata-name (push, "OVERLAY6")
+#pragma code-name (push, "OVERLAY7")
+#pragma rodata-name (push, "OVERLAY7")
 static void sbar_goto_(unsigned y)
 {
     unsigned L;
@@ -5063,7 +5063,7 @@ static void sbar_goto_(unsigned y)
         clear_selection();
     } else {
         R = sbar_range();
-        g = y == SBAR_H - 16 ? R : (R / (SBAR_H - 16)) * y;
+        g = y == SBAR_H - 16 ? win_base + doclen + suf_len : (R / (SBAR_H - 16)) * y;     /* legalul : a dokumentum vege (nem becsult) */
         goto_global(g, g);
         anchor = NOSEL;
         L = line_of((unsigned)(g - win_base));
@@ -5082,7 +5082,7 @@ static void sbar_goto_(unsigned y)
 
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void sbar_goto(unsigned y) { ovl_load(6); sbar_goto_(y); }
+static void sbar_goto(unsigned y) { ovl_load(7); sbar_goto_(y); }
 
 /* Clic ou glissement : le curseur suit la souris tout de suite, le texte
    suit quand la souris s'arrete un instant (6 images) et au relachement. */
