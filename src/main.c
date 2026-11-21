@@ -266,9 +266,9 @@ static unsigned char ix_sty, ix_st, ix_go;      /* futo stilus, az allapot erven
 static void ix_tick(void);
 static void doc_read(unsigned char *dst, dpos g, unsigned n);
 static void ix_reset(void) { ix_n = ix_st = 0; ix_go = 1; ix_tot = 0; }
-static void ix_inv(unsigned a)                  /* a dokumentum a-nal (ablak-pozicio) megvaltozott */
+static void ix_inv(void)                        /* a dokumentum megvaltozott az ablakban */
 {
-    unsigned k = ((unsigned)(win_base >> 8) + (a >> 8)) >> 3;       /* (win_base + a) >> 11, 16 biten */
+    unsigned k = (unsigned)(win_base >> 11);                    /* az ablak elejetol (az a-t figyelmen kivul hagyva : biztonsagosan keves pontot tart meg) */
     if (ix_n > k) ix_n = k;
     ix_st = 0;
     ix_go = 1;
@@ -1403,7 +1403,7 @@ static unsigned char replace(unsigned a, unsigned b, const unsigned char *src, u
     doclen = doclen - (b - a) + n;
     dirty = 1;
 #ifdef REU
-    ix_inv(a);
+    ix_inv();
     jr_log(a, b - a, n);
 #endif
     first = relayout(a, b, a + n, &all);
@@ -2013,7 +2013,7 @@ static void rq_list(void)
         }
         break;
     }
-    if (sd_pk) { ovl_load(9); rq_sizes_(); disk_busy(0); }
+    if (sd_pk) { ovl_load(4); rq_sizes_(); disk_busy(0); }
 }
 /* A lemezes torles-valaszto (free_space): csak lemez, meretlekeres nelkul. */
 static void ix_tick(void) { ovl_load(9); ix_tick_(); }
@@ -2241,6 +2241,7 @@ static void save_doc(void)
 #ifdef RTF
 static void save_as(void);
 static void txt_strip(void);
+static unsigned char file_kind(void);          /* 0 PLM, 1 RTF, 2 szoveg, 3 bináris fajlnak tunik */
 #endif
 static void save_doc(void)
 {
@@ -2714,27 +2715,45 @@ static void load_named(void) { ovl_load(6); load_named_(); }
 
 #ifdef RTF
 /* Format du fichier "filename" (disque ou SD) d'apres son contenu : 0 Plume, 1 RTF, 2 texte */
-static unsigned char file_kind(void)
+
+#pragma code-name (push, "OVERLAY9")
+#pragma rodata-name (push, "OVERLAY9")
+/* A fajl fajtaja a tartalmabol: 0 PLM, 1 RTF, 2 szoveg, 3 szovegkent nem megjelenitheto (bináris) fajl. */
+static unsigned char file_kind_(void)
 {
-    unsigned char r = 2;
+    unsigned char r = 2, c;
+    unsigned n, i, ctl = 0;
     if (fo_r(filename) == 0) {
-        if (fr(outbuf, 5) == 5) {
-            if (!memcmp(outbuf, "{\\rtf", 5)) r = 1;
-            else if (!memcmp(outbuf, "PLM", 3)) r = 0;
+        n = (unsigned)fr(outbuf, 256);
+        if (n >= 5 && !memcmp(outbuf, "{\\rtf", 5)) r = 1;
+        else if (n >= 5 && !memcmp(outbuf, "PLM", 3)) r = 0;
+        else {
+            for (i = 0; i < n; ++i) {
+                c = outbuf[i];
+                if (!c) { r = 3; break; }                         /* NUL : biztosan bináris */
+                if (c < 32 && c != 9 && c != 10 && c != 13) ++ctl;
+            }
+            if (r == 2 && ctl > (n >> 4)) r = 3;                  /* sok vezerlokarakter */
         }
         fc();
+        if (r == 3 && !message(S_OPEN, S_BIN1, S_BIN2, 1)) r = 4;      /* bináris : figyelmeztetes, 4 = megszakitva */
     }
     return r;
 }
-
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned char file_kind(void) { ovl_load(9); return file_kind_(); }
 /* Charge "filename" (disque ou SD) dans le format que son contenu indique. */
 static void load_any(void)
 {
-    unsigned char k = file_kind();
+    unsigned char k = file_kind(), b = k == 3;
+    if (k == 4) return;                         /* bináris fajl, a felhasznalo megszakitotta */
+    if (b) k = 2;
     if (k && !reu_on) { message(S_OPENRTF, S_NEEDREU, 0, 0); return; }
     if (k == 1) rtf_open();
     else if (k == 2) txt_open();
     else load_named();
+    if (b && op_ok) { filename[0] = 0; draw_title(); }     /* nev nelkul : a Save mindig uj nevet kerdez, az eredeti sosem irodik felul */
 }
 #endif
 
@@ -3445,7 +3464,7 @@ static void APPLY_STYLE(unsigned char bit)
     doclen = w + (unsigned)(&text[MAXDOC] - end);
     dirty = 1;
 #ifdef REU
-    ix_inv(a);
+    ix_inv();
     jr_log(a, b - a, w - a);
 #endif
     anchor = a;
@@ -3830,7 +3849,9 @@ static unsigned char *w_str(unsigned char *o, const char *s)
 
 static dpos rtf_tot;                            /* essai a blanc : octets comptes */
 static unsigned char rtf_dry;
+#ifdef REUTEST
 static char rtfname[22];
+#endif
 
 static void rtf_put(unsigned n)
 {
@@ -4420,6 +4441,10 @@ static void cycle_theme(void)
 #pragma code-name (push, "OVERLAY9")
 #pragma rodata-name (push, "OVERLAY9")
 /* ---- A fajlvalaszto jovahagyasi es meret-lepesei (9. overlay) ---- */
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY4")
+#pragma rodata-name (push, "OVERLAY4")
 /* Meretkod az SD_SIZE-bol (16 bites szamitassal, a bajtokbol): a felso 2 bit az egyseg (0 K, 1 M, 2 G), az also 14 bit az ertek (<= 999; 999K felett a kovetkezo egyseg). */
 static unsigned size_code(void)
 {
@@ -4456,6 +4481,10 @@ static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az
     strcpy(SD_NAME, sd_tmp);
     sd_bad = 0;
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY9")
+#pragma rodata-name (push, "OVERLAY9")
 static const char fext[3][4] = { "PLM", "RTF", "TXT" };
 /* Letezik-e az sd_cand nevu fajl az aktualis SD-mappaban ? (a teljes listat vegigolvassa) */
 static unsigned char sd_exists(void)
