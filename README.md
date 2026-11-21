@@ -99,7 +99,7 @@ Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` 
 
 ## Tested on
 
-A Commodore 64 Ultimate (firmware 1.1.0) with a 16 MB REU, at 1 MHz and 64 MHz, with a real MPS-803. The French, Danish and English editions have had less hardware testing than the Hungarian one; feedback is welcome.
+A Commodore 64 Ultimate (firmware 1.2.1) with a 16 MB REU, at 1 MHz and 64 MHz, with a real MPS-803. The French, Danish and English editions have had less hardware testing than the Hungarian one; feedback is welcome.
 
 ## Building
 
