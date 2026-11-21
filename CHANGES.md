@@ -1,6 +1,6 @@
 # PlumE REU: changes since Plume 2.2 (fork point `1f142d9`)
 
-This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a REU is **PlumE REU**, versioned by year and letter (`26a` = the first release of 2026). It is based on Plume 2.2 by LABBEJ27 and is a separate project from the original Plume, whose goal is to stay small and run on an unexpanded C64. The REU edition is a Magic Desk cartridge (`build/plumereu-XX-26a.crt`, tested on a C64 Ultimate with a 16 MB REU) and also adds many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in English and French in `README.md`.
+This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a REU is **PlumE REU**, versioned by year and letter (`26a` = the first release of 2026). It is based on Plume 2.2 by LABBEJ27 and is a separate project from the original Plume, whose goal is to stay small and run on an unexpanded C64. The REU edition is a Magic Desk cartridge (`build/plumereu-XX-26a.crt`, tested on a C64 Ultimate with a 16 MB REU) and also adds many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in `README.md`.
 
 The original Plume has since taken over two of the shared fixes (lost keystrokes, flicker-free line and status drawing). Nothing else of the original's later work (2.3 HU "Hide idle pointer", the `dist/*.prg` programs) is merged here.
 

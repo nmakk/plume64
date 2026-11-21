@@ -6,3 +6,4 @@ Third-party components:
 - fonts/unscii-8.hex: unscii by viznut, public domain (http://viznut.fi/unscii/).
 - The cc65 runtime library linked into the program is distributed under the
   zlib license (https://github.com/cc65/cc65).
+- The small font of PlumE REU (tools/mkfont_small.py) is original work for this project, MIT License.

@@ -4566,6 +4566,10 @@ static unsigned char ask_text_(const char *title, const char *label, char *buf, 
     }
 }
 
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY7")
+#pragma rodata-name (push, "OVERLAY7")
 /* Nev, verzio, keszitok (tobb sor, mint a message()-ben). */
 static void about_(void)
 {
@@ -4592,6 +4596,10 @@ static void about_(void)
     }
     dialog_close();
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
 #endif
 static unsigned char run_menu_(unsigned char m)
 {
@@ -4651,7 +4659,7 @@ static unsigned char run_menu_(unsigned char m)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m); }
-static void about(void) { ovl_load(8); about_(); }
+static void about(void) { ovl_load(7); about_(); }
 static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
 {
     ovl_load(8);
@@ -5051,19 +5059,42 @@ static void handle_key(unsigned char k)
 #ifdef REU
 /* Clic ou glissement dans l'ascenseur : la fenetre va a cet endroit du document. */
 /* La fenetre va a la position y (0..SBAR_H-16) de l'ascenseur. */
-#pragma code-name (push, "OVERLAY7")
-#pragma rodata-name (push, "OVERLAY7")
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+static void sbar_end_(void)                     /* a csuszka legalja : a dokumentum vege */
+{
+    unsigned L, n;
+        for (n = 0;;) {
+            L = doclen;
+            while (L && (text[L - 1] == CR || text[L - 1] == ' ')) --L;     /* az utolso szoveges karakter utan */
+            if ((L && nlines >= VISIBLE + 8) || !win_base || ++n > 16) break;
+            slide_back();
+        }
+        top = nlines > VISIBLE ? nlines - VISIBLE : 0;   /* az utolso teljes oldal, a kurzor a dokumentum vegen (az also sorban) */
+        cursor = doclen;
+        if (L && nlines > VISIBLE) {
+            n = line_of(L - 1) + 1;             /* sorok az utolso szoveges sorig */
+            if (nlines - n >= VISIBLE) {        /* tobb ures sor a vegen, mint a kepernyo : feljebb, az utolso szoveges sor az also 5. */
+                top = n + 4 > VISIBLE ? n + 4 - VISIBLE : 0;
+                cursor = L;
+            }
+        }
+    draw_text_area();
+    place_cursor();
+    cursor_moved();
+}
+
 static void sbar_goto_(unsigned y)
 {
     unsigned L;
     dpos R, g;
     if (SBAR_LINES) {
         R = nlines > VISIBLE ? nlines - VISIBLE : 0;
-        L = y == SBAR_H - 16 ? (unsigned)R : (unsigned)((R / (SBAR_H - 16)) * y + ((R % (SBAR_H - 16)) * y) / (SBAR_H - 16));
+        L = (unsigned)(R * y / (SBAR_H - 16));
         clear_selection();
     } else {
         R = sbar_range();
-        g = y == SBAR_H - 16 ? win_base + doclen + suf_len : (R / (SBAR_H - 16)) * y;     /* legalul : a dokumentum vege (nem becsult) */
+        g = y == SBAR_H - 16 ? win_base + doclen + suf_len : R * y / (SBAR_H - 16);     /* legalul : a dokumentum vege (nem becsult) */
         goto_global(g, g);
         anchor = NOSEL;
         L = line_of((unsigned)(g - win_base));
@@ -5071,6 +5102,7 @@ static void sbar_goto_(unsigned y)
     cursor = lstart[L];
     top = L;
     maybe_slide();                              /* la fenetre peut glisser : d'abord elle, puis l'ecran */
+    if (y == SBAR_H - 16 && !suf_len) { sbar_end_(); return; }   /* legalul : a nezetet az sbar_end_ allitja be es rajzolja ki */
     if (!suf_len && nlines > VISIBLE && top + VISIBLE > nlines) {      /* fin du document : derniere page pleine */
         top = nlines - VISIBLE;
         cursor = lstart[top];
@@ -5082,7 +5114,7 @@ static void sbar_goto_(unsigned y)
 
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void sbar_goto(unsigned y) { ovl_load(7); sbar_goto_(y); }
+static void sbar_goto(unsigned y) { ovl_load(8); sbar_goto_(y); }
 
 /* Clic ou glissement : le curseur suit la souris tout de suite, le texte
    suit quand la souris s'arrete un instant (6 images) et au relachement. */
