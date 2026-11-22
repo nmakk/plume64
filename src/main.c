@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    3220u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -912,9 +912,9 @@ static const char *const menu_items[NMENUS][MENUW] = {
 #endif
     { S_PGRAPH, S_PTEXT, S_PWIDE, 0 },
 #ifdef HUN
-    { S_ABOUT, S_KBD, S_CLICK, S_OVERWR, 0 },
+    { S_ABOUT, S_KBD, S_CLICK, S_OVERWR, S_MENUKEY, 0 },
 #elif defined(REU)
-    { S_ABOUT, S_CLICK, 0 },
+    { S_ABOUT, S_CLICK, S_MENUKEY, 0 },
 #else
     { S_ABOUT, 0 },
 #endif
@@ -938,9 +938,9 @@ static const char *const menu_keys[NMENUS][MENUW] = {
 #endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=+SPACE", "CTRL+9", "SHIFT+DEL", 0 },
+    { "", "C=+SPACE", "CTRL+9", "SHIFT+DEL", "RUN/STOP", 0 },
 #elif defined(REU)
-    { "", "CTRL+9", 0 },
+    { "", "CTRL+9", "RUN/STOP", 0 },
 #else
     { "", 0 },
 #endif
@@ -4835,10 +4835,10 @@ static void about_(void)
 #endif
 #ifdef REU
 /* Billentyusapkak a menu jobb oldalan : fekete, lekerekitett sapka, 3x5 pontos fehér nagybetuk ; a szoveg betutipusatol fuggetlen. */
-static const char kg_ch[] = "ACDEFHILMOPRSTU123456789=";
+static const char kg_ch[] = "ACDEFHILMOPRSTU123456789=N/";
 static const unsigned kg_bits[] = {
     0x2BED, 0x3923, 0x6B6E, 0x79A7, 0x79A4, 0x5BED, 0x7497, 0x4927, 0x5FED, 0x2B6A, 0x6BA4, 0x6BAD, 0x388E, 0x7492, 0x5B6F,
-    0x2C97, 0x62A7, 0x628E, 0x5BC9, 0x798E, 0x39AA, 0x7292, 0x2AAA, 0x2ACE, 0xE38
+    0x2C97, 0x62A7, 0x628E, 0x5BC9, 0x798E, 0x39AA, 0x7292, 0x2AAA, 0x2ACE, 0xE38, 0x6B6D, 0x12A4
 };
 #define capbuf ((unsigned char *)outbuf + 300)           /* 7 sor, soronkent 5 bajt */
 static void setpx(unsigned char r, unsigned char p, unsigned char v)
@@ -5067,8 +5067,10 @@ static void do_menu(unsigned char m, unsigned char item)
         if (item == 1) { hun_toggle(); break; }
         if (item == 2) { sound_on ^= 1; key_click(); break; }
         if (item == 3) { overwrite ^= 1; draw_status(); break; }
+        if (item == 4) break;                   /* Menu (on / off) : csak a RUN/STOP billentyu tanitasa */
 #elif defined(REU)
         if (item == 1) { sound_on ^= 1; key_click(); break; }
+        if (item == 2) break;
 #endif
 #ifdef REU
         about();
@@ -5343,6 +5345,8 @@ static void delete_after(void)
 }
 #endif
 #ifdef HUN
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
 /* C= et espace tenues ensemble ? */
 static unsigned char cs_down(void)
 {
@@ -5355,7 +5359,7 @@ static unsigned char cs_down(void)
     return !(r & 0x10) || !(r & 0x20);
 }
 
-static void hun_toggle(void)
+static void hun_toggle_(void)
 {
     hun_on ^= 1;
     hun_set(hun_on);
@@ -5364,6 +5368,9 @@ static void hun_toggle(void)
     POKE(198, 0);                               /* ni de repetition de l'espace */
     joy_hold = 3;
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void hun_toggle(void) { ovl_load(8); hun_toggle_(); }
 #endif
 
 /* C= + kurzor : kijeloles a kurzor mozgatasaval (a 9. overlayben). */
