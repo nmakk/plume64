@@ -10,11 +10,16 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **Drive button**: the IEC drive button of the file requester reads `D 8` ... `D 11` (was `U08` ... `U11`), which is easier to understand and fits in the large font too.
 - **Empty drive**: a drive without a disk shows `No disk in drive N` in the list header instead of `65535 blocks free` (French build: `Pas de disque, unite N`).
 - **Menu shortcuts** are written out in full in the menus: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Left`, `Ctrl+9`, `Shift+Del`, `C=+Spc` (a plus sign everywhere, no caret or dash).
+- **Keyboard menus**: RUN/STOP opens the menu bar (File menu first, first item highlighted); Left / Right switch between the menus, Up / Down move through the items, Space or Return choose the item, RUN/STOP closes the menu again. The File menu now shows `Stop+Restore` (reload) and `Sh+Stop+Restore` (restore from `.bck`) next to the two items.
+- **Selection from the keyboard**: C= plus a cursor key extends the selection (it repeats while held); on the Hungarian keyboard layer the cursor keys are read from the keyboard matrix.
+- **B / I / U without a selection** changes the character under the cursor (the one before it at the end of a line or the document) instead of only the typing style.
+- **Pressed controls are visible**: the scroll bar thumb turns black while it is held (dark blue in the blue colour theme, where it is black anyway), and the file picked in the file requester keeps a highlighted background while it loads or the folder opens.
 - **Version**: the About box and the cartridge file names say 26b.
 
 ### Fixes
 - **Style indicator**: with the cursor on the first letter of a bold, italic or underlined run the B/I/U indicator showed plain text until the cursor moved to the second letter. It now shows the style of the character under the cursor (the cursor sits before the style marker; the indicator looks past it).
 - **Pointer first row**: on a C64 Ultimate II+ (firmware 3.14) one 256-byte REU read wrote a stray byte to `$C000`, the first byte of the pointer sprite, which drew an extra horizontal line in the first row of the pointer or the hourglass. The main loop now restores that byte on every pass, and the hourglass has an empty top row so that both pointers start with the same byte. The stray write also happens in 26a, so it is not caused by the long names; it was not seen on a C64 Ultimate (firmware 1.2.1).
+- **Window size**: the RAM editing window is 2920 bytes (was 3250) to make room for the new code; the document itself still lives in the REU. Overlay 9 now holds the text prompt (`ask_text_`) and overlay 6 the file type check (`file_kind_`) to make room in overlay 8.
 - **README / About**: no change yet (the `U08` ... `U11` wording and the credits are still to be updated at release time).
 
 ## 0. New in PlumE REU 26a

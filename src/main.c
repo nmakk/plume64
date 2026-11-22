@@ -918,7 +918,7 @@ static const char *const menu_items[NMENUS][MENUW] = {
 };
 static const char *const menu_keys[NMENUS][MENUW] = {
 #ifdef RTF
-    { "", "", "", "", "F1", "", "", 0 },
+    { "", "", "Stop+Restore", "Sh+Stop+Restore", "F1", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
@@ -1796,6 +1796,12 @@ static void arrow_draw(unsigned char row, unsigned char up)
     for (k = 0; k < 8; ++k) bm_or(ROWBASE(row) + RQ_X + RQ_W - 24 + k, arrow_up[up ? k : 7 - k]);
 }
 
+/* A lista kijelolt sora : elkulonulo (a lap szineinek megfordito) hatter. */
+static void fhl(unsigned char i, unsigned char on)
+{
+    color_cells((unsigned char)(12 + i), 4, 31, on ? COL_BAR : COL_PAGE);
+}
+
 static unsigned char pick_file_(const char *title, unsigned char newbtn)
 {
     unsigned char i, sel;
@@ -1865,6 +1871,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                 sel = 252;
             }
         }
+        if (sel < nfiles) fhl(sel, 1);                      /* a valasztott sor kiemelve marad, amig betolt */
         if (sel == 253) fpage = key == 0x11 ? fpage + MAXFILES : (fpage > MAXFILES ? fpage - MAXFILES : 0);
         return sel;                             /* 252 / 253 : a hivo ujraolvassa a listat */
     }
