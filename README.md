@@ -97,6 +97,23 @@ Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` 
 - **Original Plume files**: PLM1 and PLM2 documents of the original Plume open directly; PLM3 (over 64 KB) cannot be read by the original.
 - From a Mac, [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) and [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) fetch and store files in a disk image on a C64 Ultimate (FTP + `c1541`).
 
+## Quick save in detail
+
+**Why it exists.** Saving a whole document means writing every byte of it again. For a large document that takes long: over the IEC serial bus of a plain C64 a 250 KB file needs minutes, and even on the C64 Ultimate or a disk image the time grows with the size of the document, although only a few words may have changed. Quick save (`F1`) writes only what changed, so it takes a moment whatever the size of the document, and the original file stays untouched until the next full *Save*.
+
+**How it works.**
+1. **The journal.** Every edit is recorded in the REU as it happens: a 7-byte header (position, number of deleted bytes, number of inserted bytes) followed by the inserted text. Letters typed one after another and repeated backspaces extend the last record instead of making new ones. The deleted text is kept in a second REU area; the same journal drives Undo and Redo.
+2. **F1 writes `NAME.bck` next to the file** (same drive, SD card or USB; on a disk the name is at most 12 characters plus `.bck`). The file starts with a 13-byte header: `PBK3`, the length of the file it belongs to, a 16-bit signature of that file (its length and three samples of 128 bytes: start, middle and end) and the length of the journal. Then comes the journal since the last full save. If nothing has changed since then, `F1` only removes an old `.bck` and marks the document as saved.
+3. **Opening the file** looks for `NAME.bck`. If its length and signature match the file, the edits are replayed silently and *Quick save restored.* is shown; everything is back as you left it, and Undo works across the restored edits. If they do not match (the file was changed by another program or replaced), Plume asks whether to apply the `.bck` anyway; nothing is ever applied or thrown away without asking.
+4. **A full *Save* or *Save as*** writes the whole file, makes it the new base of the journal and deletes the `.bck`.
+5. **Two ways to get the plain file**: *File → Reload file* opens the file without its `.bck`; *File → Restore from .bck* opens it with the `.bck`.
+
+**Good to know.**
+- The `.bck` is only valid for the file it was made for. When you copy a document to another place, copy the `.bck` with it, or do a full *Save* first.
+- The journal holds about 256 KB of edits and 40,000 records (16 KB and 2,500 on a REU under 2 MB). When it is full, `F1` does a full save instead and starts a new journal.
+- The `.bck` files are hidden in the file requester, so they cannot be opened by mistake.
+- On a C64 Ultimate the keyboard LED lights while there are unsaved changes and goes out after `F1` or *Save*.
+
 ## Tested on
 
 A Commodore 64 Ultimate (firmware 1.2.1) with a 16 MB REU, at 1 MHz and 64 MHz, with a real MPS-803; and on a real Commodore 64 with an Ultimate II+L cartridge (firmware 3.14) and a REU. The French, Danish and English editions have had less hardware testing than the Hungarian one; feedback is welcome.
