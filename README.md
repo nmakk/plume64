@@ -83,12 +83,12 @@ The file requester (Open, Save as with the format buttons), the Find box and the
 | `:` (É) | é | É |
 | `;` (Á) | á | Á |
 | `=` (Ű) | ű | Ű |
-| `£` | Tab (4 spaces) | `-` |
+| `£` | `€` | `-` |
 | `,` `.` `/` | `,` `.` `/` | `<` `>` `?` |
 | `CLR/HOME` | start of line; already there: end of line | delete forward (repeats like `INST/DEL`) |
 | `INST/DEL` | delete backwards | toggle insert / overwrite |
 
-Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` `"` `#` `$` `%` `&` `'` `(` `)`, `C=` + `Ü` `Ó` `Ű` gives `+` `-` `=`, `C=` + `Ö` gives `0`, `C=` + `↑` gives `^`, `C=` + `£` gives `£`, `C=` + `←` gives `←`, `C=` + `É` `Á` `Ú` `Ő` gives `:` `;` `*` `@`. `C=` + `Shift` + `É` / `Á` gives `[` / `]`, and `C=` + `Shift` + `-` gives `_`. `CTRL` stays where it is, `RUN/STOP` is Esc. `Shift` + `CLR/HOME` deletes forward on the C64 keyboard too.
+Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` `"` `#` `$` `%` `&` `'` `(` `)`, `C=` + `Ü` `Ó` `Ű` gives `+` `-` `=`, `C=` + `Ö` gives `0`, `C=` + `↑` gives `^`, `C=` + `£` gives `€`, `C=` + `←` gives `←`, `C=` + `É` `Á` `Ú` `Ő` gives `:` `;` `*` `@`. `C=` + `Shift` + `É` / `Á` gives `[` / `]`, and `C=` + `Shift` + `-` gives `_`. `CTRL` stays where it is, `RUN/STOP` is Esc. `Shift` + `CLR/HOME` deletes forward on the C64 keyboard too. The Tab (four spaces) is `CTRL`+`I`, also in the Edit menu.
 
 ## Good to know
 

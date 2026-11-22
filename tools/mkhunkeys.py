@@ -31,8 +31,8 @@ hu(UPARROW, 0xE2, 0xEC)     # i acute
 P[LEFTARROW], S[LEFTARROW] = 0x30, 0x3F
 # chiffres, Shift : disposition hongroise
 S[D1], S[D3], S[D4], S[D6], S[D7] = 0x27, 0x2B, 0x21, 0x2F, 0x3D
-# livre : tabulation ; Shift : tiret
-P[POUND], S[POUND] = 0x09, 0x2D
+# livre : euro (a KERNAL 0x5C kodja, a main.c translate 161 = euro jelet ad) ; Shift : tiret ; a Tab : CTRL+I
+P[POUND], S[POUND] = 0x5C, 0x2D
 # CLR/HOME : debut / fin de ligne ; Shift : suppression vers l'avant
 # 0x94 (mint a Shift+INST/DEL) : a KERNAL ugyanugy ismetli, mint a backspace-et (0x14) ;
 # a 0x7F egy leutesre sok karaktert torolne, a 0x93 pedig nem ismetlodne
