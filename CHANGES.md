@@ -15,10 +15,12 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **B / I / U without a selection** changes the character under the cursor (the one before it at the end of a line or the document) instead of only the typing style.
 - **File requester from the keyboard**: Up / Down move a highlighted row through the list (paging at the ends), Space or Return open the highlighted file or folder (in Save as, Return still means *New...*), RUN/STOP cancels.
 - **Undo / Redo labels**: the Edit menu shows `Restore` and `Sh+Restore` next to Undo and Redo (they were `Ctrl+Z` and `Ctrl+Y`, which still work).
+- **File requester redraw**: entering a folder redraws only the list, and switching drive, place (*D* / *C64U*) or format (*PLM* / *RTF* / *TXT*) redraws only the button row and the list; the whole requester and the editor behind it are no longer repainted.
 - **Pressed controls are visible**: the scroll bar thumb turns black while it is held (dark blue in the blue colour theme, where it is black anyway), and the file picked in the file requester keeps a highlighted background while it loads or the folder opens.
 - **Version**: the About box and the cartridge file names say 26b.
 
 ### Fixes
+- **Stale paging arrow**: after reading a drive without a disk the file requester kept showing the *more files* arrow of the previous list.
 - **Style indicator**: with the cursor on the first letter of a bold, italic or underlined run the B/I/U indicator showed plain text until the cursor moved to the second letter. It now shows the style of the character under the cursor (the cursor sits before the style marker; the indicator looks past it).
 - **Pointer first row**: on a C64 Ultimate II+ (firmware 3.14) one 256-byte REU read wrote a stray byte to `$C000`, the first byte of the pointer sprite, which drew an extra horizontal line in the first row of the pointer or the hourglass. The main loop now restores that byte on every pass, and the hourglass has an empty top row so that both pointers start with the same byte. The stray write also happens in 26a, so it is not caused by the long names; it was not seen on a C64 Ultimate (firmware 1.2.1).
 - **Window size**: the RAM editing window is 2850 bytes (was 3250) to make room for the new code; the document itself still lives in the REU. The file requester's frame is drawn from overlay 4 (`pick_frame_`) to make room in overlay 7. Overlay 9 now holds the text prompt (`ask_text_`) and overlay 6 the file type check (`file_kind_`) to make room in overlay 8.
