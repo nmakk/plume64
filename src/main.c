@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3220u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -3545,7 +3545,7 @@ static void APPLY_STYLE(unsigned char bit)
         }
     } else {
 #ifdef REU
-        if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, 0, 0); return; }
+        if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, S_BIGSEL2, 0); return; }
 #endif
         a = sel_lo();
         b = sel_hi();
