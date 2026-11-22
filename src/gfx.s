@@ -802,6 +802,8 @@ _cursor_off:
 
 ; Allume pres d'une demi-seconde, eteint autant ; cache pendant une selection.
 _blink_cursor:
+        lda #$80                ; a C64 Ultimate II+ (3.14) egyes REU-olvasasai egy bajtot irnak a $C000 cimre (a nyil elso sora) : a nyil es a homokora elso sora is $80
+        sta $C000
         lda _anchor
         and _anchor+1
         cmp #$FF
