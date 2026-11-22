@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    2920u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    2850u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -1173,15 +1173,10 @@ static unsigned char read_key(void)
     /* Tant que C= est enfoncee, on jette ce que le KERNAL a pu mettre dans
        son tampon : sa couche C= ne fait pas Shift, et notre lecture de la
        matrice pendant sa scrutation peut lui donner des touches fantomes. */
-#ifdef HUN
-    if (!hun_on)
-#endif
-    {
-        k = hu_key();
-        if (k || hu_last != 0xFF) {     /* C= tenue, ou touche lue */
-            POKE(198, 0);
-            return k;
-        }
+    k = hu_key();
+    if (k || hu_last != 0xFF) {         /* C= tenue, ou touche lue */
+        POKE(198, 0);
+        return k;
     }
 #endif
     return cbm_k_getin();
@@ -5007,7 +5002,7 @@ static unsigned char hu_key(void)
         return 0;
     }
 #ifdef HUN
-    if (!(PEEK(0xDC01) & 0x10)) {       /* C= + espace : change de clavier */
+    if (!hun_on && !(PEEK(0xDC01) & 0x10)) {       /* C= + espace : change de clavier */
         POKE(0xDC00, 0x7F);
         asm("cli");
         return 0xFA;
@@ -5018,7 +5013,11 @@ static unsigned char hu_key(void)
     POKE(0xDC00, 0xBF);                 /* rangee 6 : Shift droit, bit 4 */
     d = ~PEEK(0xDC01);
     shift = ((c & 0x80) | (d & 0x10)) ? HU_KEYS : 0;
+#ifdef HUN
+    for (i = 0; i < (hun_on ? 0 : 2 * HU_KEYS); i += 2) {       /* magyar kiosztasban a C= betuk nem a hu_key-e */
+#else
     for (i = 0; i < 2 * HU_KEYS; i += 2) {
+#endif
         POKE(0xDC00, hu_keys[i]);
         if (!(~PEEK(0xDC01) & hu_keys[i + 1])) continue;
         POKE(0xDC00, 0x7F);
@@ -5044,7 +5043,7 @@ static unsigned char hu_key(void)
         hu_t = PEEK(0xA2);
         return i;
     }
-    hu_last = 0xFE;                     /* C= tenue, aucune touche de la couche */
+    hu_last = hun_on ? 0xFF : 0xFE;     /* C= tenue, aucune touche de la couche (magyar kiosztasban a KERNAL billentyuit nem dobjuk el) */
     return 0;
 }
 #else
@@ -5171,11 +5170,16 @@ static void hun_toggle(void)
 #endif
 static void selmove_(unsigned char k)
 {
-    unsigned a = anchor == NOSEL ? cursor : anchor;
+    unsigned a = anchor == NOSEL ? cursor : anchor, oc = cursor;
     if (k == 0xF4 || k == 0x1D) move_right();
     else if (k == 0xF5 || k == 0x9D) move_left();
     else move_vertical(k == 0xF6 || k == 0x11 ? 1 : -1);
-    set_selection(a, cursor);
+    /* a regi kijeloles hatarai a regi kurzorral szamolodnak (az ujrarajzolashoz) */
+    {
+        unsigned nc = cursor;
+        cursor = oc;
+        set_selection(a, nc);
+    }
 }
 #ifdef REU
 #pragma rodata-name (pop)
