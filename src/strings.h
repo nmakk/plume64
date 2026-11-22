@@ -233,7 +233,7 @@
 #define S_BIGSEL2    "Par morceaux (max ~2500)."
 #define S_REDO       "Refaire"
 #define S_DELFWD     "Supprimer devant"
-#define S_LINEEND    "Debut / fin de ligne"
+#define S_LINEEND    "D" C_EAIGU "but / fin de ligne"
 #define S_TABK       "Tabulation (4 espaces)"
 #define S_RELOAD     "Recharger le fichier"
 #define S_RELOADB    "Restaurer le .bck"

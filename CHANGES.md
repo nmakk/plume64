@@ -1,10 +1,10 @@
 # PlumE REU: changes since Plume 2.2 (fork point `1f142d9`)
 
-This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a REU is **PlumE REU**, versioned by year and letter (`26a` = the first release of 2026). It is based on Plume 2.2 by LABBEJ27 and is a separate project from the original Plume, whose goal is to stay small and run on an unexpanded C64. The REU edition is a Magic Desk cartridge (`build/plumereu-XX-26a.crt`, tested on a C64 Ultimate with a 16 MB REU) and also adds many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in `README.md`.
+This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a REU is **PlumE REU**, versioned by year and letter (`26a` = the first release of 2026, `26b` its first correction). It is based on Plume 2.2 by LABBEJ27 and is a separate project from the original Plume, whose goal is to stay small and run on an unexpanded C64. The REU edition is a Magic Desk cartridge (`build/plumereu-XX-26b.crt`, tested on a C64 Ultimate with a 16 MB REU) and also adds many fixes. The standard builds get the shared fixes and a smaller stack (0x180). Everything is documented in `README.md`.
 
 The original Plume has since taken over two of the shared fixes (lost keystrokes, flicker-free line and status drawing). Nothing else of the original's later work (2.3 HU "Hide idle pointer", the `dist/*.prg` programs) is merged here.
 
-## 0a. New in PlumE REU 26b (unreleased)
+## 0a. New in PlumE REU 26b
 
 ### New features and changes
 - **Drive button**: the IEC drive button of the file requester reads `D 8` ... `D 11` (was `U08` ... `U11`), which is easier to understand and fits in the large font too.
@@ -33,7 +33,6 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **Pointer first row**: on a C64 Ultimate II+ (firmware 3.14) one 256-byte REU read wrote a stray byte to `$C000`, the first byte of the pointer sprite, which drew an extra horizontal line in the first row of the pointer or the hourglass. The main loop now restores that byte on every pass, and the hourglass has an empty top row so that both pointers start with the same byte. The stray write also happens in 26a, so it is not caused by the long names; it was not seen on a C64 Ultimate (firmware 1.2.1).
 - **Memory**: the C stack is 256 bytes (was 384; the deepest use measured is under 64 bytes), which gives the program 128 bytes more; there is a tenth overlay (cartridge bank 58) for the next features.
 - **Window size**: the RAM editing window is 3250 bytes as in 26a. The room for the new code came from moving rarely used functions (`home_end`, `pos_at_mouse`, `new_doc`, `sprites_init`, `sb_ink`, `hun_toggle`) to overlay 8, the 256-byte stack and the menu moving to overlay 10.
-- **README / About**: no change yet (the `U08` ... `U11` wording and the credits are still to be updated at release time).
 
 ## 0. New in PlumE REU 26a
 - **Name and version**: PlumE REU 26a. The About box shows the name, version, authors (Plume: LABBEJ27, PlumE: Norbert Makk, HU keys: mkckOner) and the font credit; the *E* of the **PlumE** label at the top right has its own colour in each colour theme.
