@@ -1841,7 +1841,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                     key = 0;
                 }
             }
-            if ((key == ' ' || (key == CR && !newbtn)) && nfiles && !fgrey(cur)) sel = cur;
+            if ((key == ' ' || (key == CR && !newbtn) || on_button(RQ_X + (newbtn ? 108 : 24), 20)) && nfiles && !fgrey(cur)) sel = cur;
             if (newbtn && (key == CR || on_button(RQ_X + 24, 20))) sel = 254;
             if (pk_btn && clicked && mouse_y / 8 >= 6 && mouse_y / 8 <= 8) {
                 if (sd_ok && mouse_x >= 24 && mouse_x < 72) sel = 249;
@@ -1854,7 +1854,10 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                 i = (unsigned char)(mouse_y / 8 - 12);
                 if (mouse_x >= RQ_X + RQ_W - 32 && (i == 0 || i == MAXFILES - 1) && (fpage || fmore)) {
                     key = i ? 0x11 : 0x91;      /* fleche cliquee : page suivante / precedente */
-                } else if (i < nfiles && !fgrey(i)) sel = i;
+                } else if (i < nfiles && !fgrey(i)) {      /* egy kattintas kijelol (szurke hatter), a kijelolt sor ujra kattintva, vagy az Open gomb megnyitja */
+                    if (i == cur) sel = i;
+                    else { fhl(cur, 0); cur = i; fhl(i, 1); }
+                }
             }
             if ((key == 0x11 && fmore) || (key == 0x91 && fpage)) { sel = 253; }
             if (wheel) {                        /* egergorgo: a lista egy bejegyzesenkent (gyors forgatasra tobbel) mozog */
@@ -2102,7 +2105,7 @@ static void ix_tick(void) { ovl_load(9); ix_tick_(); }
 static void pick_frame_(const char *title, unsigned char newbtn);
 static unsigned char pick_run(const char *title, unsigned char newbtn)
 {
-    if (pk_first) { ovl_load(4); pick_frame_(title, newbtn); pk_first = 0; }
+    if (pk_first) { ovl_load(8); pick_frame_(title, newbtn); pk_first = 0; }
     ovl_load(7);
     return pick_file_(title, newbtn);
 }
@@ -4631,7 +4634,11 @@ static unsigned size_code(void)
     return 0x8000 | ((m + 512) >> 10);
 }
 
-/* A fajlvalaszto kerete, cime es gombjai (csak elso rajzolaskor) : a 4. overlayben, hogy a 7. overlayben legyen hely. */
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+/* A fajlvalaszto kerete, cime es gombjai (csak elso rajzolaskor) : a 8. overlayben, hogy a 7. overlayben legyen hely. */
 static void pick_frame_(const char *title, unsigned char newbtn)
 {
     if (pk_first == 1) {                /* 2 : csak a gombsor (hely- vagy formatumvaltas) */
@@ -4639,6 +4646,7 @@ static void pick_frame_(const char *title, unsigned char newbtn)
         put_text(RQ_X + 16, 4, title, BOLD);
         button(RQ_X + RQ_W - 24 - BTN_W, 20, S_CANCEL);
         if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
+        button(RQ_X + (newbtn ? 108 : 24), 20, newbtn ? S_SAVEB : pk_btn ? S_OPENB : S_OK);      /* a kijelolt sor megnyitasa / mentese */
     }
     if (pk_btn && sd_ok) {              /* hely: Disk / C64U (kulon gombok, a kivalasztott lenyomott) */
         button_w(24, 7, 48, dlabel, !sd_pk);
@@ -4650,6 +4658,10 @@ static void pick_frame_(const char *title, unsigned char newbtn)
         button_w(248, 7, 48, "TXT", pk_fm == 2);
     }
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY4")
+#pragma rodata-name (push, "OVERLAY4")
 
 static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
 {
