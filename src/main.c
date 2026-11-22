@@ -1841,7 +1841,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                     key = 0;
                 }
             }
-            if ((key == ' ' || (key == CR && !newbtn) || on_button(RQ_X + (newbtn ? 108 : 24), 20)) && nfiles && !fgrey(cur)) sel = cur;
+            if ((key == ' ' || (key == CR && !newbtn) || on_button(RQ_X + (newbtn ? 104 : 24), 20)) && nfiles && !fgrey(cur)) sel = cur;
             if (newbtn && (key == CR || on_button(RQ_X + 24, 20))) sel = 254;
             if (pk_btn && clicked && mouse_y / 8 >= 6 && mouse_y / 8 <= 8) {
                 if (sd_ok && mouse_x >= 24 && mouse_x < 72) sel = 249;
@@ -4646,7 +4646,7 @@ static void pick_frame_(const char *title, unsigned char newbtn)
         put_text(RQ_X + 16, 4, title, BOLD);
         button(RQ_X + RQ_W - 24 - BTN_W, 20, S_CANCEL);
         if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
-        button(RQ_X + (newbtn ? 108 : 24), 20, newbtn ? S_SAVEB : pk_btn ? S_OPENB : S_OK);      /* a kijelolt sor megnyitasa / mentese */
+        button(RQ_X + (newbtn ? 104 : 24), 20, newbtn ? S_SAVEB : pk_btn ? S_OPENB : S_OK);      /* a kijelolt sor megnyitasa / mentese */
     }
     if (pk_btn && sd_ok) {              /* hely: Disk / C64U (kulon gombok, a kivalasztott lenyomott) */
         button_w(24, 7, 48, dlabel, !sd_pk);

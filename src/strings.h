@@ -167,10 +167,10 @@
 #endif
 #define S_OK         "OK"
 #define S_CANCEL     "Annuler"
-#define S_SAVEB      "Enregistrer"
+#define S_SAVEB      "Enreg."
 #define S_OPENB      "Ouvrir"
 #define S_MENUKEY    "Menu (on / off)"
-#define S_NOSAVEB    "Ne pas enreg."
+#define S_NOSAVEB    "Non"
 #define S_FILENAME   "Nom du fichier :"
 #define S_FINDWHAT   "Rechercher :"
 #define S_NOTFOUND   "Texte introuvable."

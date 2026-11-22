@@ -9,14 +9,16 @@
 - **Big documents**: the whole document lives in the REU (up to ~15 MB instead of 20,000 characters) and a sliding window in RAM follows the cursor. PLM3 format above 64 KB.
 - **Three file formats, recognised by content**: `.plm` (the native Plume format), `.rtf` (Word, LibreOffice: bold, italic, underline, accents) and `.txt` (UTF-8 or ASCII, any line ending). Save keeps the document's own format; Save as offers PLM, RTF and TXT. Saving as text warns first and removes the formatting from the screen too, so the document is exactly the file.
 - **C64 Ultimate file system**: Open, Save, Save as and Quick save work on the SD card, USB, Flash and the mounted FTP servers (`/ftp/`) through the Ultimate's command interface, and are fast (a 250 KB RTF opens in about 12 seconds instead of minutes over the IEC serial bus). IEC drives 8 to 11 (`D 8`..`D 11`) work as before.
-- **One file requester** for Open and Save as: *Disk* / *C64U* buttons, folders, sizes in blocks or K/M/G, mouse wheel, long names shortened in the middle, a pointer that turns into an hourglass while the Ultimate is read, a confirmation before a file is replaced. Folders can be nested without a practical limit (paths up to 255 characters, shown by their end), and names up to 63 characters work (longer names are listed greyed out and cannot be chosen).
+- **One file requester** for Open and Save as: *D 8* / *C64U* buttons (the IEC drives 8 to 11 and the Ultimate's file system), folders, sizes in blocks or K/M/G, mouse wheel, a click selects a row (grey) and the *Open* button, Space, Return or a second click opens it, long names shortened in the middle, a pointer that turns into an hourglass while the Ultimate is read, a confirmation before a file is replaced. It works from the keyboard as well: cursor Up / Down, Space or Return, `RUN/STOP` cancels. Folders can be nested without a practical limit (paths up to 255 characters, shown by their end), and names up to 63 characters work (longer names are listed greyed out and cannot be chosen).
 - **Binary files are recognised**: opening a file that looks binary (NUL bytes or many control characters) warns that it cannot be shown correctly; if you go on it opens as text without a name, so *Save* always asks for a new name and the original file is never overwritten.
 - **Undo / Redo** that goes back to the start of the session (even across saves), with a journal in the REU.
-- **Quick save** (`F1`): writes only the changes to `NAME.bck` next to the file; restored automatically when the file is opened.
+- **Quick save** (`F1`): writes only the changes to `NAME.bck` next to the file; restored automatically when the file is opened. *New* and *Open* ask first when the changes live only in the `.bck`.
 - **Selection and clipboard over the whole document** (the clipboard is in the REU, 256 KB): *Select all*, cut, copy, paste and delete work on huge selections.
 - **Exact line numbers**: a background index lays the document out while you are idle, so the status line shows `Line N/total` even in a very long document (a `~` marks an estimate until the index is ready). It never slows typing.
 - **Small or normal font**: *Style → Small font* (on by default) is a hand-drawn proportional font with one-pixel strokes, about 60 to 72 characters per line instead of about 46. Printing always uses the normal font.
 - **Scrollbar** over the whole document, **find** across the whole document, **double click** selects a word, **triple click** a sentence, a mouse wheel, an insert/overwrite mode.
+- **Works without the mouse**: `RUN/STOP` opens the menu bar (cursor keys move through the menus and items, `Space` or `Return` choose, `RUN/STOP` closes it) and the menus show their keys as small key caps; `C=` + a cursor key selects text (`C=` + `Shift` + cursor goes up or left); `B` / `I` / `U` change the character under the cursor when nothing is selected.
+- **Typographic punctuation**: `„` `”` `“` `‘` `’` `–` `—` `•` on `CTRL` + `1` … `8`; the RTF `\endash`, `\emdash`, `\bullet`, `\lquote`, `\rquote`, `\ldblquote`, `\rdblquote` and `\uN` codes are read and written back, the plain `"` and `'` stay on the keyboard as they were.
 - **Four colour themes** (`CTRL` + `←`); on a C64 Ultimate the keyboard and case LEDs follow the theme and the keyboard LED shows unsaved changes.
 - **Printing** on a Commodore MPS-803 / MPS-801 (device 4) with 3 cm margins on A4: *Graphics* (exactly what is on screen), *Text* (the printer's characters, faster, without accents) and *Wide text*; large documents are printed in chunks.
 - **Four editions** (menus in English, keyboard and letters per language): French, English, Danish, Hungarian.
@@ -44,7 +46,7 @@ On a C64 Ultimate the keyboard and case LEDs follow the colour theme (light, gre
 | ![Light theme with white LEDs](docs/images/plumereu-leds-light.jpg) | ![Green theme with green LEDs](docs/images/plumereu-leds-green.jpg) |
 | ![Blue theme with blue LEDs](docs/images/plumereu-leds-blue.jpg) | ![Yellow theme with yellow LEDs](docs/images/plumereu-leds-yellow.jpg) |
 
-The file requester (Open, Save as with the format buttons), the Find box and the About box, and the File and Style menus (small and normal font):
+The file requester (Open with its *Open* button, Save as with the format buttons), the Find box and the About box, and the File, Edit and Help menus with their key caps (small and normal font):
 
 ![Dialogs](docs/images/plumereu-dialogs.png)
 
@@ -58,7 +60,7 @@ The file requester (Open, Save as with the format buttons), the Find box and the
 
 ## Using it
 
-**Keys**: `F1` quick save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `CTRL`+`Z` / `CTRL`+`Y` undo/redo, `CTRL`+`9` key click on/off, `RUN/STOP` cancels any dialog. `RESTORE` is undo and `Shift`+`RESTORE` redo, `RUN/STOP` opens the menu bar (cursor keys move, `Space` or `Return` choose, `RUN/STOP` closes it again); *File → Reload file* and *Restore from .bck* are menu-only. Every function also has a menu entry. Typographic punctuation: `CTRL`+`1` … `8` types `„` `”` `“` `‘` `’` `–` `—` `•` (Hungarian and English quotes, dashes, bullet). Accented letters use `C=` plus a letter (`C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç); `C=`+`-` types an underscore.
+**Keys**: `F1` quick save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `CTRL`+`Z` / `CTRL`+`Y` undo/redo, `CTRL`+`9` key click on/off, `RUN/STOP` cancels any dialog or, in the editor, opens the menu bar (cursor keys move, `Space` or `Return` choose, `RUN/STOP` closes it again; *? → Menu (on / off)* reminds you). `RESTORE` is undo and `Shift`+`RESTORE` redo. `C=` + a cursor key selects text, `Home` goes to the start or the end of the line, `Shift`+`Home` deletes forward, `CTRL`+`I` is a Tab (four spaces). *File → Reload file* and *Restore from .bck* are menu-only. Every function also has a menu entry. Typographic punctuation: `CTRL`+`1` … `8` types `„` `”` `“` `‘` `’` `–` `—` `•` (Hungarian and English quotes, dashes, bullet). Accented letters use `C=` plus a letter (`C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç); `C=`+`-` types an underscore.
 
 **Pointer**: a 1351 mouse on port 1 (a USB mouse on the C64 Ultimate; with a wheel if *Mouse Mode* is *Mouse + Wheel*), or a joystick on port 2 or 1 (one pixel per frame for precise aiming, then faster; fire clicks; hold fire while moving to select). Port 2 is better: port 1 shares its wires with the keyboard, so the keyboard is ignored while a port 1 joystick moves.
 
@@ -94,6 +96,7 @@ Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` 
 
 - **Disk access**: Plume hides the sprites during IEC disk access, otherwise JiffyDOS falls back to slow serial transfer. Do not read the C64 Ultimate's memory over the REST API during disk access.
 - **RTF code pages**: `\ansicpg1250` (Hungarian ő ű as `\'f5` `\'fb`) and the usual cp1252 escapes are read correctly. Not handled: other code pages and RTF text colours. Loading a very large file over IEC is very slow; use the C64U buttons.
+- **Styling a selection**: *Bold* / *Italic* / *Underline* / *Plain* work on a selection that fits into the editing window in RAM (about 2500 characters); for a larger one Plume says so and the style can be applied in parts. Copy, cut, paste, delete and find work on any size. Long runs of one style are no problem for editing or saving.
 - **Original Plume files**: PLM1 and PLM2 documents of the original Plume open directly; PLM3 (over 64 KB) cannot be read by the original.
 - From a Mac, [`tools/c64u/Loadfromc64u.sh`](tools/c64u/Loadfromc64u.sh) and [`Savetoc64u.sh`](tools/c64u/Savetoc64u.sh) fetch and store files in a disk image on a C64 Ultimate (FTP + `c1541`).
 
