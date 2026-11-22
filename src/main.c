@@ -890,7 +890,10 @@ static void pg_end(void)
 
 #define NMENUS 5
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
-#define MENUW 9
+#define MENUW 12
+#ifdef REU
+#pragma rodata-name (push, "OVERLAY10")
+#endif
 static const char *const menu_items[NMENUS][MENUW] = {
 #ifdef RTF
     { S_NEW, S_OPEN, S_RELOAD, S_RELOADB, S_QSAVE, S_SAVE, S_SAVEAS, 0 },
@@ -898,7 +901,7 @@ static const char *const menu_items[NMENUS][MENUW] = {
     { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
 #endif
 #ifdef REU
-    { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, S_UNDO, S_REDO, 0 },
+    { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, S_UNDO, S_REDO, S_DELFWD, S_LINEEND, S_TABK, 0 },
 #else
     { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
 #endif
@@ -916,31 +919,35 @@ static const char *const menu_items[NMENUS][MENUW] = {
     { S_ABOUT, 0 },
 #endif
 };
+/* A billentyuk : nagybetus nevek '+'-szal elvalasztva, a menu sapkakent rajzolja ('<' : balra nyil). */
 static const char *const menu_keys[NMENUS][MENUW] = {
 #ifdef RTF
-    { "", "", "Stop+Restore", "Sh+Stop+Restore", "F1", "", "", 0 },
+    { "", "", "", "", "F1", "", "", 0 },
 #else
     { "", "", "F1", "", 0 },
 #endif
 #ifdef REU
-    { "F6", "F2", "F4", "", "", "F8", "Restore", "Sh+Restore", 0 },
+    { "F6", "F2", "F4", "", "", "F8", "RESTORE", "SHIFT+RESTORE", "SHIFT+HOME", "HOME", "CTRL+I", 0 },
 #else
     { "F6", "F2", "F4", "", "", "F8", 0 },
 #endif
 #ifdef REU
-    { "", "F3", "F5", "F7", "Ctrl+\xB5", "", 0 },
+    { "", "F3", "F5", "F7", "CTRL+<", "", 0 },
 #else
     { "", "F3", "F5", "F7", 0 },
 #endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=+Spc", "Ctrl+9", "Shift+Del", 0 },
+    { "", "C=+SPACE", "CTRL+9", "SHIFT+DEL", 0 },
 #elif defined(REU)
-    { "", "Ctrl+9", 0 },
+    { "", "CTRL+9", 0 },
 #else
     { "", 0 },
 #endif
 };
+#ifdef REU
+#pragma rodata-name (pop)
+#endif
 static unsigned menu_x[NMENUS + 1];
 static unsigned char menu_kb, menu_next;        /* billentyuzetes menu : nyitas, a kovetkezo menu (1-tol) */
 
@@ -4527,9 +4534,7 @@ static void reload_doc(unsigned char with_bck)
 
 static void restore_key(void)
 {
-    unsigned char sh = PEEK(0x028D) & 1;
-    if (PEEK(0x91) == 0x7F) reload_doc(sh);     /* RUN/STOP est tenue */
-    else handle_key(sh ? 0x19 : 0x1A);
+    handle_key((PEEK(0x028D) & 1) ? 0x19 : 0x1A);       /* RESTORE : annuler ; Shift + RESTORE : refaire */
 }
 
 /* F1 : sauvegarde rapide, ou enregistrement complet quand il n'y a pas encore de fichier de base. */
@@ -4768,8 +4773,77 @@ static void about_(void)
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY8")
-#pragma rodata-name (push, "OVERLAY8")
+#pragma code-name (push, "OVERLAY10")
+#pragma rodata-name (push, "OVERLAY10")
+#endif
+#ifdef REU
+/* Billentyusapkak a menu jobb oldalan : fekete, lekerekitett sapka, 3x5 pontos fehér nagybetuk ; a szoveg betutipusatol fuggetlen. */
+static const char kg_ch[] = "ACDEFHILMOPRSTU123456789=";
+static const unsigned kg_bits[] = {
+    0x2BED, 0x3923, 0x6B6E, 0x79A7, 0x79A4, 0x5BED, 0x7497, 0x4927, 0x5FED, 0x2B6A, 0x6BA4, 0x6BAD, 0x388E, 0x7492, 0x5B6F,
+    0x2C97, 0x62A7, 0x628E, 0x5BC9, 0x798E, 0x39AA, 0x7292, 0x2AAA, 0x2ACE, 0xE38
+};
+#define capbuf ((unsigned char *)outbuf + 300)           /* 7 sor, soronkent 5 bajt */
+static void setpx(unsigned char r, unsigned char p, unsigned char v)
+{
+    unsigned char *q = capbuf + r * 5 + (p >> 3), m = (unsigned char)(0x80 >> (p & 7));
+    if (v) *q |= m; else *q &= (unsigned char)~m;
+}
+static void capblit(unsigned x, unsigned char row)
+{
+    unsigned char r, k;
+    for (r = 0; r < 7; ++r)
+        for (k = 0; k < 5; ++k)
+            if (capbuf[r * 5 + k]) bm_or(ROWBASE(row) + (x & 0xFFF8u) + k * 8 + r, capbuf[r * 5 + k]);
+}
+static unsigned char kwid(const char *s)
+{
+    unsigned char w = 0, in = 0, c;
+    while ((c = (unsigned char)*s++) != 0) {
+        if (c == '+') { w += 6; in = 0; continue; }
+        if (!in) { in = 1; w += 3; }
+        w += c == '<' ? 6 : 4;
+    }
+    return w;
+}
+static void kdraw(unsigned x, unsigned char row, const char *s)
+{
+    unsigned char c, r, w, o, gx, gw, i;
+    unsigned g;
+    const char *t;
+    while (*s) {
+        memset(capbuf, 0, 35);
+        o = (unsigned char)(x & 7);
+        if (*s == '+') {
+            for (i = 1; i < 4; ++i) setpx(3, o + i, 1);
+            setpx(2, o + 2, 1);
+            setpx(4, o + 2, 1);
+            capblit(x, row);
+            x += 6;
+            ++s;
+            continue;
+        }
+        w = 3;
+        for (t = s; *t && *t != '+'; ++t) w += *t == '<' ? 6 : 4;
+        for (r = 0; r < 7; ++r)
+            for (c = 0; c < w; ++c)
+                if (!((r == 0 || r == 6) && (c == 0 || c == w - 1))) setpx(r, o + c, 1);
+        gx = o + 2;
+        for (; s < t; ++s) {
+            if (*s == '<') {
+                for (r = 0; r < 5; ++r) for (c = 0; c < 5; ++c) if (((r == 2 ? 0x1F : r == 0 || r == 4 ? 0x04 : 0x08) >> (4 - c)) & 1) setpx(1 + r, gx + c, 0);
+                gw = 5;
+            } else {
+                g = kg_bits[strchr(kg_ch, *s) - kg_ch];
+                for (r = 0; r < 5; ++r) for (c = 0; c < 3; ++c) if ((g >> (14 - r * 3 - c)) & 1) setpx(1 + r, gx + c, 0);
+                gw = 3;
+            }
+            gx += gw + 1;
+        }
+        capblit(x, row);
+        x += w;
+    }
+}
 #endif
 static unsigned char run_menu_(unsigned char m)
 {
@@ -4777,7 +4851,11 @@ static unsigned char run_menu_(unsigned char m)
     unsigned x0 = menu_x[m], width = 0, t;
     menu_kb = 0;
     while (menu_items[m][n]) {
+#ifdef REU
+        t = text_width(menu_items[m][n], 0) + kwid(menu_keys[m][n]) + 16;
+#else
         t = text_width(menu_items[m][n], 0) + text_width(menu_keys[m][n], 0) + 16;
+#endif
         if (t > width) width = t;
         ++n;
     }
@@ -4788,7 +4866,11 @@ static unsigned char run_menu_(unsigned char m)
     for (i = 0; i < n; ++i) {
         row = 2 + i;
         put_text(x0 + 12, row, menu_items[m][i], 0);
+#ifdef REU
+        kdraw(x0 + width - 8 - kwid(menu_keys[m][i]), row, menu_keys[m][i]);
+#else
         put_text(x0 + width - 8 - text_width(menu_keys[m][i], 0), row, menu_keys[m][i], 0);
+#endif
         if (m == 2 && ((i && (style & (1 << (i - 1)))) || (!i && !style)) && !has_selection()) {
             put_text(x0 + 4, row, "*", 0);
         }
@@ -4839,7 +4921,7 @@ static unsigned char run_menu_(unsigned char m)
 #ifdef REU
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m); }
+static unsigned char run_menu(unsigned char m) { ovl_load(10); return run_menu_(m); }
 static void about(void) { ovl_load(6); about_(); }
 static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
 {
@@ -4908,6 +4990,9 @@ static void do_menu(unsigned char m, unsigned char item)
 #ifdef REU
         if (item == 6) { undo(); cursor_moved(); }
         if (item == 7) { redo(); cursor_moved(); }
+        if (item == 8) handle_key(0x94);        /* torles elore */
+        if (item == 9) handle_key(0x13);        /* Home : sor eleje / vege */
+        if (item == 10) handle_key(0x09);       /* Tab : negy szokoz */
 #endif
         break;
     case 2:

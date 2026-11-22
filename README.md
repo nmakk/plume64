@@ -58,7 +58,7 @@ The file requester (Open, Save as with the format buttons), the Find box and the
 
 ## Using it
 
-**Keys**: `F1` quick save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `CTRL`+`Z` / `CTRL`+`Y` undo/redo, `CTRL`+`9` key click on/off, `RUN/STOP` cancels any dialog. `RUN/STOP`+`RESTORE` reloads the file from disk without its `.bck`; `Shift`+`RUN/STOP`+`RESTORE` reloads it with its `.bck`. Every function also has a menu entry. Accented letters use `C=` plus a letter (`C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç); `C=`+`-` types an underscore.
+**Keys**: `F1` quick save, `F3`/`F5`/`F7` bold/italic/underline, `F2`/`F4`/`F6` copy/paste/cut, `F8` find next, `CTRL`+`Z` / `CTRL`+`Y` undo/redo, `CTRL`+`9` key click on/off, `RUN/STOP` cancels any dialog. `RESTORE` is undo and `Shift`+`RESTORE` redo, `RUN/STOP` opens the menu bar (cursor keys move, `Space` or `Return` choose, `RUN/STOP` closes it again); *File → Reload file* and *Restore from .bck* are menu-only. Every function also has a menu entry. Accented letters use `C=` plus a letter (`C=`+`E` gives é, `C=`+`A` gives à, `C=`+`C` gives ç); `C=`+`-` types an underscore.
 
 **Pointer**: a 1351 mouse on port 1 (a USB mouse on the C64 Ultimate; with a wheel if *Mouse Mode* is *Mouse + Wheel*), or a joystick on port 2 or 1 (one pixel per frame for precise aiming, then faster; fire clicks; hold fire while moving to select). Port 2 is better: port 1 shares its wires with the keyboard, so the keyboard is ignored while a port 1 joystick moves.
 
