@@ -4935,9 +4935,9 @@ static unsigned char run_menu_(unsigned char m)
         if (m == 2 && i == 5 && small_font) put_text(x0 + 4, row, "*", 0);
 #endif
 #ifdef HUN
-        if (m == 4 && ((i == 2 && sound_on) || (i == 3 && overwrite))) put_text(x0 + 4, row, "*", 0);
+        if (m == 4 && ((i == 2 && sound_on) || (i == 3 && overwrite) || i == 4)) put_text(x0 + 4, row, "*", 0);      /* i == 4 : a menu be van kapcsolva */
 #elif defined(REU)
-        if (m == 4 && i == 1 && sound_on) put_text(x0 + 4, row, "*", 0);
+        if (m == 4 && ((i == 1 && sound_on) || i == 2)) put_text(x0 + 4, row, "*", 0);
 #endif
     }
     if (kb) { hover = 0; xor_span(2, x0 + 2, x0 + width - 2); }
