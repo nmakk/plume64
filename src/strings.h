@@ -41,6 +41,8 @@
 #endif
 #define S_OK         "OK"
 #define S_CANCEL     "Cancel"
+#define S_SAVEB      "Save"
+#define S_NOSAVEB    "No save"
 #define S_FILENAME   "File name:"
 #define S_FINDWHAT   "Find:"
 #define S_NOTFOUND   "Text not found."
@@ -159,6 +161,8 @@
 #endif
 #define S_OK         "OK"
 #define S_CANCEL     "Annuler"
+#define S_SAVEB      "Enregistrer"
+#define S_NOSAVEB    "Ne pas enreg."
 #define S_FILENAME   "Nom du fichier :"
 #define S_FINDWHAT   "Rechercher :"
 #define S_NOTFOUND   "Texte introuvable."

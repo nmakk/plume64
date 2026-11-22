@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    2850u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    2790u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -1287,8 +1287,8 @@ static unsigned char message(const char *title, const char *line1, const char *l
     if (line1) put_text(DLG_X + 16, DLG_ROW + 2, line1, 0);
     if (line2) put_text(DLG_X + 16, DLG_ROW + 3, line2, 0);
 #endif
-    button(BTN_OK_X, DLG_ROW + MSG_B, S_OK);
-    if (cancel) button(BTN_CANCEL_X, DLG_ROW + MSG_B, S_CANCEL);
+    button(BTN_OK_X, DLG_ROW + MSG_B, cancel == 2 ? S_SAVEB : S_OK);                       /* 2 : Save / No save a OK / Cancel helyett */
+    if (cancel) button(BTN_CANCEL_X, DLG_ROW + MSG_B, cancel == 2 ? S_NOSAVEB : S_CANCEL);
     for (;;) {
         poll_mouse();
         key = read_key();
@@ -2842,7 +2842,7 @@ static void load_any(void)
 static unsigned char leave_ok(const char *title)
 {
     if (dirty) return message(title, S_LOSE, 0, 1);
-    if (jr_ok && jr_len != jb && message(title, S_QUICK1, S_QUICK2, 1)) save_doc();      /* OK : teljes mentes ; Megse : tovabb (a .bck megorzi) */
+    if (jr_ok && jr_len != jb && message(title, S_QUICK1, S_QUICK2, 2)) save_doc();      /* Save : teljes mentes ; No save : tovabb (a .bck megorzi) */
     return 1;
 }
 
