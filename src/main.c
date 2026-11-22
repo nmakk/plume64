@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    2920u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -223,6 +223,8 @@ static void jr_log(unsigned a, unsigned del, unsigned n);
 static void jr_rem(unsigned a, unsigned n);
 static void cursor_moved(void);
 static void handle_key(unsigned char k);
+static void handle_click(void);
+static void kbd_menu(unsigned char m);
 static dpos jb, rl;                         /* debut du journal depuis le dernier enregistrement ; octets supprimes gardes (annuler) */
 static unsigned char jr_off, bck_skip;
 static unsigned char jr_blk, jr_lf;             /* operation en bloc (2 : premiere partie, 1 : suite) ; drapeaux du dernier enregistrement (0x80 bloc, 0x40 suite) */
@@ -940,6 +942,7 @@ static const char *const menu_keys[NMENUS][MENUW] = {
 #endif
 };
 static unsigned menu_x[NMENUS + 1];
+static unsigned char menu_kb, menu_next;        /* billentyuzetes menu : nyitas, a kovetkezo menu (1-tol) */
 
 static void draw_menubar(void)
 {
@@ -2793,8 +2796,8 @@ static void load_named(void) { ovl_load(6); load_named_(); }
 #ifdef RTF
 /* Format du fichier "filename" (disque ou SD) d'apres son contenu : 0 Plume, 1 RTF, 2 texte */
 
-#pragma code-name (push, "OVERLAY9")
-#pragma rodata-name (push, "OVERLAY9")
+#pragma code-name (push, "OVERLAY6")
+#pragma rodata-name (push, "OVERLAY6")
 /* A fajl fajtaja a tartalmabol: 0 PLM, 1 RTF, 2 szoveg, 3 szovegkent nem megjelenitheto (bináris) fajl. */
 static unsigned char file_kind_(void)
 {
@@ -2819,7 +2822,7 @@ static unsigned char file_kind_(void)
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static unsigned char file_kind(void) { ovl_load(9); return file_kind_(); }
+static unsigned char file_kind(void) { ovl_load(6); return file_kind_(); }
 /* Charge "filename" (disque ou SD) dans le format que son contenu indique. */
 static void load_any(void)
 {
@@ -3488,20 +3491,33 @@ static void paste(void)
 static void APPLY_STYLE(unsigned char bit)
 {
     unsigned a, b, w, sel_end, need = 0;
-    unsigned char all, every = 1, old_st, start_st, emitted, want, c, k;
+    unsigned char all, every = 1, old_st, start_st, emitted, want, c, k, one = 0;
     unsigned char map[8];                       /* ancien style -> nouveau style */
     unsigned char *q, *end, *rd;
     unsigned first;
     if (!has_selection()) {
-        if (bit) style ^= bit; else style = 0;
-        draw_status();
-        return;
-    }
+        if (bit) {                              /* kijeloles nelkul : a kurzor alatti karakter (ha nincs, az elotte levo) valt */
+            a = cursor;
+            while (a < doclen && IS_MARK(text[a])) ++a;
+            if (a < doclen && text[a] != CR) { one = 1; b = a + 1; a = cursor; }       /* a kurzor es a karakter kozti jelolok a kijeloleshez tartoznak */
+            else {
+                a = cursor;
+                while (a && IS_MARK(text[a - 1])) --a;
+                if (a && text[a - 1] != CR) { one = 2; b = a; --a; }
+            }
+        }
+        if (!one) {
+            if (bit) style ^= bit; else style = 0;
+            draw_status();
+            return;
+        }
+    } else {
 #ifdef REU
-    if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, 0, 0); return; }
+        if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, 0, 0); return; }
 #endif
-    a = sel_lo();
-    b = sel_hi();
+        a = sel_lo();
+        b = sel_hi();
+    }
     start_st = old_st = style_before(a);
     end = &text[b];
     for (q = &text[a]; q < end; ++q) {
@@ -3549,10 +3565,11 @@ static void APPLY_STYLE(unsigned char bit)
     agl = win_base + a;
 #endif
     cursor = sel_end;
+    if (one) { anchor = NOSEL; if (one == 1) cursor = a; }      /* egy karakter : nincs kijeloles, a kurzor marad */
     first = relayout(a, b, w, &all);
     if (!all && relayout_last < line_of(sel_end)) relayout_last = line_of(sel_end);
     refresh_after(first, all);
-    style = style_before(cursor);               /* a B / I / U jelzo a kurzornal ervenyes stilust mutatja */
+    style = style_before(cursor + (IS_MARK(text[cursor]) ? 1 : 0));     /* a B / I / U jelzo a kurzor alatti karakter stilusat mutatja */
     draw_status();
 }
 #ifdef REU
@@ -4620,9 +4637,9 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
 
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY8")
-#pragma rodata-name (push, "OVERLAY8")
-/* Szovegbekeres (a Find es a fajlvalaszto "Uj..." gombja) : az 8. overlayben. */
+#pragma code-name (push, "OVERLAY9")
+#pragma rodata-name (push, "OVERLAY9")
+/* Szovegbekeres (a Find es a fajlvalaszto "Uj..." gombja) : a 9. overlayben. */
 #ifdef REU
 #define AT_B 9                                  /* a gombok kozepso sora */
 #else
@@ -4722,8 +4739,9 @@ static void about_(void)
 #endif
 static unsigned char run_menu_(unsigned char m)
 {
-    unsigned char n = 0, i, hover = 255, row, choice = 255;
+    unsigned char n = 0, i, hover = 255, row, choice = 255, kb = menu_kb;
     unsigned x0 = menu_x[m], width = 0, t;
+    menu_kb = 0;
     while (menu_items[m][n]) {
         t = text_width(menu_items[m][n], 0) + text_width(menu_keys[m][n], 0) + 16;
         if (t > width) width = t;
@@ -4749,12 +4767,22 @@ static unsigned char run_menu_(unsigned char m)
         if (m == 4 && i == 1 && sound_on) put_text(x0 + 4, row, "*", 0);
 #endif
     }
+    if (kb) { hover = 0; xor_span(2, x0 + 2, x0 + width - 2); }
     for (;;) {
         poll_mouse();
         key = read_key();
         if (key == 3) break;
         row = mouse_y / 8;
-        i = (row >= 2 && row <= n + 1 && mouse_x >= x0 && mouse_x < x0 + width) ? row - 2 : 255;
+        i = hover;
+        if (!kb) i = (row >= 2 && row <= n + 1 && mouse_x >= x0 && mouse_x < x0 + width) ? row - 2 : 255;
+        if (key == 0x11) i = hover + 1 >= n ? 0 : hover + 1;                /* 255 + 1 = 0 */
+        if (key == 0x91) i = hover == 255 || !hover ? n - 1 : hover - 1;
+        if (key == 0x9D || key == 0x1D) {
+            t = key == 0x1D ? m + 1 : m + NMENUS - 1;
+            menu_next = (t >= NMENUS ? t - NMENUS : t) + 1;
+            break;
+        }
+        if ((key == ' ' || key == CR) && hover != 255) { choice = hover; break; }
         if (i != hover) {
             if (hover != 255) xor_span(hover + 2, x0 + 2, x0 + width - 2);
             if (i != 255) xor_span(i + 2, x0 + 2, x0 + width - 2);
@@ -4781,7 +4809,7 @@ static unsigned char run_menu(unsigned char m) { ovl_load(8); return run_menu_(m
 static void about(void) { ovl_load(6); about_(); }
 static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
 {
-    ovl_load(8);
+    ovl_load(9);
     return ask_text_(title, label, buf, max, petscii);
 }
 #else
@@ -4955,6 +4983,7 @@ static const unsigned char hu_font[] = {
 };
 
 static unsigned char hu_last = 0xFF;    /* offset deja vu ; 0xFF = C= relachee */
+static unsigned char hu_t, hu_rep;      /* a kurzorbillentyuk ismetlese */
 
 /* Touche de la couche C= enfoncee, sous forme 0xE0 + son numero (+ HU_KEYS si Shift),
    ou 0 si C= est relachee ou si la touche a deja ete comptee. $028D dirait
@@ -4991,8 +5020,24 @@ static unsigned char hu_key(void)
         hu_last = i;
         return 0xE0 + (i >> 1) + shift;
     }
-    hu_last = 0xFE;                     /* C= tenue, aucune touche de la couche */
+    POKE(0xDC00, 0xFE);                 /* 0. sor : a kurzorbillentyuk (a C= + kurzor kijelol) */
+    c = ~PEEK(0xDC01);
+    POKE(0xDC00, 0x7F);
     asm("cli");
+    if (c & 0x84) {
+        i = (c & 0x80) ? 0xF6 : 0xF4;               /* le, jobbra ; Shiftel fel, balra */
+        if (shift) ++i;
+        if (i == hu_last) {
+            if ((unsigned char)(PEEK(0xA2) - hu_t) < hu_rep) return 0;
+            hu_rep = 5;
+        } else {
+            hu_last = i;
+            hu_rep = 25;
+        }
+        hu_t = PEEK(0xA2);
+        return i;
+    }
+    hu_last = 0xFE;                     /* C= tenue, aucune touche de la couche */
     return 0;
 }
 #else
@@ -5112,9 +5157,35 @@ static void hun_toggle(void)
 }
 #endif
 
+/* C= + kurzor : kijeloles a kurzor mozgatasaval (a 9. overlayben). */
+#ifdef REU
+#pragma code-name (push, "OVERLAY9")
+#pragma rodata-name (push, "OVERLAY9")
+#endif
+static void selmove_(unsigned char k)
+{
+    unsigned a = anchor == NOSEL ? cursor : anchor;
+    if (k == 0xF4 || k == 0x1D) move_right();
+    else if (k == 0xF5 || k == 0x9D) move_left();
+    else move_vertical(k == 0xF6 || k == 0x11 ? 1 : -1);
+    set_selection(a, cursor);
+}
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void selmove(unsigned char k) { ovl_load(9); selmove_(k); }
+#else
+#define selmove selmove_
+#endif
+
 static void handle_key(unsigned char k)
 {
     unsigned char c;
+#ifdef KBD_HU
+    if (k >= 0xF4 && k <= 0xF7) { selmove(k); cursor_moved(); return; }
+#else
+    if ((PEEK(0x028D) & 2) && (k == 0x1D || k == 0x9D || k == 0x11 || k == 0x91)) { selmove(k); cursor_moved(); return; }       /* C= tartva */
+#endif
     switch (k) {
     case CR:   key_click(); insert_char(CR); return;
     case 0x14: key_click(); delete_before(); return;
@@ -5133,7 +5204,7 @@ static void handle_key(unsigned char k)
     case 0xFA: hun_toggle(); return;
     case 0xFB: overwrite ^= 1; draw_status(); return;
 #endif
-    case 3:    clear_selection(); return;
+    case 3:    clear_selection(); kbd_menu(0); return;
     case 0x85:
 #ifdef REU
         f1_save();
@@ -5276,10 +5347,19 @@ static void page_step_(unsigned char down)
 #pragma code-name (pop)
 static void page_step(unsigned char down) { ovl_load(6); page_step_(down); }
 
+/* A gorgetosav csuszkaja lenyomva fekete (a kek temaban sotetkek, mert ott alapbol fekete). */
+static void sb_ink(unsigned char pressed)
+{
+    unsigned char r, d = dark_tone[theme_no];
+    if (pressed) d = d ? 0 : COLOR_BLUE;
+    for (r = TEXT_ROW0; r < FOOT_ROW; ++r) color_cells(r, 39, 1, (unsigned char)((d << 4) | (COL_BAR & 15)));
+}
+
 static void sbar_drag(void)
 {
     unsigned yy = mouse_y > TEXT_ROW0 * 8 ? mouse_y - TEXT_ROW0 * 8 : 0, ty = sbar_ty(), y, shown = 0xFFFF;
     unsigned char off = (unsigned char)(yy - ty), since = PEEK(0xA2), todo = 0, first = 1, down;
+    sb_ink(1);
     if (yy < ty || yy >= ty + 16) {             /* clic au-dessus / au-dessous du curseur : page par page */
         down = yy >= ty;
         do {
@@ -5291,6 +5371,7 @@ static void sbar_drag(void)
             ty = sbar_ty();
             if (down ? ty + 16 > yy : yy >= ty) break;     /* le curseur a rejoint la souris */
         } while (held);
+        sb_ink(0);
         return;
     }
     do {
@@ -5301,6 +5382,7 @@ static void sbar_drag(void)
         else if (todo && (unsigned char)(PEEK(0xA2) - since) >= 6) { todo = 0; sbar_goto(y); }
         poll_mouse();
     } while (held);
+    sb_ink(0);
     if (todo) sbar_goto(y);
 }
 #endif
@@ -5343,13 +5425,25 @@ static void select_unit_(unsigned p, unsigned char n)
 static void select_unit(unsigned p, unsigned char n) { ovl_load(3); select_unit_(p, n); }
 #endif
 
+static void kbd_menu(unsigned char m)
+{
+    menu_kb = 1;
+    mouse_x = menu_x[m];
+    mouse_y = 0;
+    handle_click();
+}
+
 static void handle_click(void)
 {
     unsigned char row = mouse_y / 8, m, k;
     unsigned p;
     if (row == 0) {
         for (m = 0; m < NMENUS; ++m) {
-            if (mouse_x >= menu_x[m] && mouse_x < menu_x[m + 1]) { do_menu(m, run_menu(m)); return; }
+            if (mouse_x >= menu_x[m] && mouse_x < menu_x[m + 1]) {
+                do_menu(m, run_menu(m));
+                if (menu_next) { m = menu_next - 1; menu_next = 0; kbd_menu(m); }
+                return;
+            }
         }
         return;
     }
