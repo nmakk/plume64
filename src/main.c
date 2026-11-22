@@ -2838,9 +2838,17 @@ static void load_any(void)
 #endif
 
 #ifdef REU
+/* Uj dokumentum / masik fajl megnyitasa elott : nem mentett valtozas (dirty), vagy csak a gyorsmentes (.bck) tartja oket. */
+static unsigned char leave_ok(const char *title)
+{
+    if (dirty) return message(title, S_LOSE, 0, 1);
+    if (jr_ok && jr_len != jb && message(title, S_QUICK1, S_QUICK2, 1)) save_doc();      /* OK : teljes mentes ; Megse : tovabb (a .bck megorzi) */
+    return 1;
+}
+
 static void open_doc(void)
 {
-    if (dirty && !message(S_OPEN, S_LOSE, 0, 1)) return;
+    if (!leave_ok(S_OPEN)) return;
     if (choose(S_PICK, 0) == 1) {
         sd_on = sd_sel;
         op_ok = 0;
@@ -4869,7 +4877,11 @@ static void do_menu(unsigned char m, unsigned char item)
     if (item == 255) return;
     switch (m) {
     case 0:
+#ifdef REU
+        if (item == 0 && leave_ok(S_NEW)) { new_doc(); redraw_all(); }
+#else
         if (item == 0 && (!dirty || message(S_NEW, S_LOSE, 0, 1))) { new_doc(); redraw_all(); }
+#endif
         if (item == 1) open_doc();
 #ifdef RTF
         if (item == 2) reload_doc(0);           /* le fichier du disque / de la SD, sans le .bck */

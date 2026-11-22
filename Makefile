@@ -62,7 +62,7 @@ build/font-normal.bin: src/font.s tools/fontbin.py
 build/plumereu-%-$(VER).crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin build/sd.bin build/font-small.bin build/font-normal.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
-	OV=""; for f in $<.?; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
+	OV=""; for f in $<.[0-9]*; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
 	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME-E REU $(VER) $*" md 59=build/font-normal.bin 60=build/font-small.bin 61=build/sd.bin 62=build/led.bin $$OV
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py
