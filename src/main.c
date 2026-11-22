@@ -5215,7 +5215,7 @@ static void handle_key(unsigned char k)
     case 0xFA: hun_toggle(); return;
     case 0xFB: overwrite ^= 1; draw_status(); return;
 #endif
-    case 3:    clear_selection(); kbd_menu(0); return;
+    case 3:    kbd_menu(0); return;                            /* a kijeloles megmarad : a menubol vagas / masolas / beillesztes */
     case 0x85:
 #ifdef REU
         f1_save();
