@@ -4,6 +4,19 @@ This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a R
 
 The original Plume has since taken over two of the shared fixes (lost keystrokes, flicker-free line and status drawing). Nothing else of the original's later work (2.3 HU "Hide idle pointer", the `dist/*.prg` programs) is merged here.
 
+## 0a. New in PlumE REU 26b (unreleased)
+
+### New features and changes
+- **Drive button**: the IEC drive button of the file requester reads `D 8` ... `D 11` (was `U08` ... `U11`), which is easier to understand and fits in the large font too.
+- **Empty drive**: a drive without a disk shows `No disk in drive N` in the list header instead of `65535 blocks free` (French build: `Pas de disque, unite N`).
+- **Menu shortcuts** are written out in full in the menus: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Left`, `Ctrl+9`, `Shift+Del`, `C=+Spc` (a plus sign everywhere, no caret or dash).
+- **Version**: the About box and the cartridge file names say 26b.
+
+### Fixes
+- **Style indicator**: with the cursor on the first letter of a bold, italic or underlined run the B/I/U indicator showed plain text until the cursor moved to the second letter. It now shows the style of the character under the cursor (the cursor sits before the style marker; the indicator looks past it).
+- **Pointer first row**: on a C64 Ultimate II+ (firmware 3.14) one 256-byte REU read wrote a stray byte to `$C000`, the first byte of the pointer sprite, which drew an extra horizontal line in the first row of the pointer or the hourglass. The main loop now restores that byte on every pass, and the hourglass has an empty top row so that both pointers start with the same byte. The stray write also happens in 26a, so it is not caused by the long names; it was not seen on a C64 Ultimate (firmware 1.2.1).
+- **README / About**: no change yet (the `U08` ... `U11` wording and the credits are still to be updated at release time).
+
 ## 0. New in PlumE REU 26a
 - **Name and version**: PlumE REU 26a. The About box shows the name, version, authors (Plume: LABBEJ27, PlumE: Norbert Makk, HU keys: mkckOner) and the font credit; the *E* of the **PlumE** label at the top right has its own colour in each colour theme.
 - **C64 Ultimate file system**: Open, Save, Save as and Quick save work on the SD card, USB, Flash and the `/ftp/` entry (mounted FTP servers) through the Ultimate's command interface (UCI, DOS target), with a small module (`src/sd.s`) that lives at `$C700` and is copied from cartridge bank 61 at startup. A 250 KB RTF opens in about 12 seconds instead of minutes over the IEC serial bus. Plume checks at startup that the Ultimate's DOS target answers; if not (old firmware, not a C64 Ultimate) the *C64U* button is not shown and everything works on the disk as before.
