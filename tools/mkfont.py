@@ -6,7 +6,8 @@ Codes internes : ASCII 32-126, puis les lettres accentuees de CHARSET a partir d
 """
 import sys
 
-ACCENTS = "àâäçéèêëîïôöùûüÀÂÇÉÈÊËÎÏÔÙÛÜœŒ«»°€æøåÆØÅáÁíÍóÓúÚőŐűŰÖ←"
+ACCENTS = "àâäçéèêëîïôöùûüÀÂÇÉÈÊËÎÏÔÙÛÜœŒ«»°€æøåÆØÅáÁíÍóÓúÚőŐűŰÖ←„”“‘’–—•"
+# 182-189 : tipografiai idezojelek, gondolatjelek, felsorolasjel (kezzel rajzolva, nincsenek az unscii-ben).
 # 128-167 : francais et danois (æøå : 2.1) ; 168-179 : hongrois ; 180 : Ö ; 181 : ← (C64 nyíl).
 SPACE_WIDTH = 4
 glyphs = {}
@@ -42,6 +43,21 @@ for ch, (base, accent) in REDRAW.items():
     for r, line in enumerate(DRAWN[accent]):
         rows[r] = int(line.replace("#", "1").replace(".", "0"), 2)
     glyphs[ord(ch)] = bytes(rows)
+
+
+# Kezzel rajzolt tipografiai jelek (unscii-8 nem tartalmazza ezeket a kodokat).
+EXTRA = {
+    "„": ["........", "........", "........", "........", "........", ".##..##.", ".##..##.", "##..##.."],
+    "”": [".##..##.", ".##..##.", "##..##..", "........", "........", "........", "........", "........"],
+    "“": ["..##..##", ".##..##.", ".##..##.", "........", "........", "........", "........", "........"],
+    "‘": ["..##....", ".##.....", ".##.....", "........", "........", "........", "........", "........"],
+    "’": [".##.....", ".##.....", "##......", "........", "........", "........", "........", "........"],
+    "–": ["........", "........", "........", "#######.", "........", "........", "........", "........"],
+    "—": ["........", "........", "........", "########", "........", "........", "........", "........"],
+    "•": ["........", "........", ".##.....", "####....", "####....", ".##.....", "........", "........"],
+}
+for ch, rows in EXTRA.items():
+    glyphs[ord(ch)] = bytes(int(r.replace("#", "1").replace(".", "0"), 2) for r in rows)
 
 # Code 127 inutilise mais present : la largeur de tout code c est alors
 # font_width[c - 32], sans calcul (accents a partir de 128).

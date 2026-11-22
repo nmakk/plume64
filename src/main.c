@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    2790u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    2640u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -3089,6 +3089,7 @@ static const char accent_base[] = "aaaceeeeiioouuuAACEEEEIIOUUU      aoaAOAaAiIo
 
 static unsigned char to_printer(unsigned char c)
 {
+    if (c >= 182) return "\"\"\"''--*"[c - 182];                /* tipografiai jelek : ASCII kozelites */
     if (c >= 128) {
         c -= 128;
         if (c == 28 || c == 29) return 'O';
@@ -3694,17 +3695,18 @@ static void find_dialog(void)
 #pragma code-name (push, "OVERLAY1")
 #pragma rodata-name (push, "OVERLAY1")
 
-/* Unicode des codes internes 128 a 181 (voir font_map.txt). */
-static const unsigned ucode[54] = {
+/* Unicode des codes internes 128 a 189 (voir font_map.txt). */
+static const unsigned ucode[62] = {
     0xE0, 0xE2, 0xE4, 0xE7, 0xE9, 0xE8, 0xEA, 0xEB, 0xEE, 0xEF, 0xF4, 0xF6, 0xF9, 0xFB, 0xFC,
     0xC0, 0xC2, 0xC7, 0xC9, 0xC8, 0xCA, 0xCB, 0xCE, 0xCF, 0xD4, 0xD9, 0xDB, 0xDC,
     0x153, 0x152, 0xAB, 0xBB, 0xB0, 0x20AC, 0xE6, 0xF8, 0xE5, 0xC6, 0xD8, 0xC5,
-    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190
+    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190,
+    0x201E, 0x201D, 0x201C, 0x2018, 0x2019, 0x2013, 0x2014, 0x2022
 };
 /* Windows-1252, octets 0x80 a 0x9F. */
 static const unsigned cp1252_hi[32] = {
-    0x20AC, '?', ',', 'f', '"', 0x2026, '+', '+', '^', '%', 'S', '<', 0x152, '?', 'Z', '?',
-    '?', 0x2018, 0x2019, 0x201C, 0x201D, '*', 0x2013, 0x2014, '~', 'T', 's', '>', 0x153, '?', 'z', 'Y'
+    0x20AC, '?', ',', 'f', 0x201E, 0x2026, '+', '+', '^', '%', 'S', '<', 0x152, '?', 'Z', '?',
+    '?', 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, '~', 'T', 's', '>', 0x153, '?', 'z', 'Y'
 };
 
 static unsigned char rtf_code(unsigned u)
@@ -3712,9 +3714,6 @@ static unsigned char rtf_code(unsigned u)
     unsigned char i;
     if (u < 128) return u < 32 ? ' ' : (unsigned char)u;
     for (i = 0; i < sizeof ucode / 2; ++i) if (ucode[i] == u) return 128 + i;
-    if (u == 0x2018 || u == 0x2019) return '\'';
-    if (u == 0x201C || u == 0x201D) return '"';
-    if (u == 0x2013 || u == 0x2014) return '-';
     if (u == 0xA0) return ' ';
     return '?';
 }
@@ -3791,10 +3790,17 @@ static void r_word(void)
     else if (!strcmp(w, "ulnone")) rcur &= ~UNDERLINE;
     else if (!strcmp(w, "plain")) rcur &= 8;
     else if (!strcmp(w, "par") || !strcmp(w, "line")) r_put(CR);
-    else if (!strcmp(w, "tab")) r_tab();                                 /* mint a Tab billentyu : negy szokoz */
+    else if (!strcmp(w, "tab")) r_tab();
     else if (!strcmp(w, "u")) { r_uni(rneg ? 0 - rnum : rnum); rskip = ruc; }
     else if (!strcmp(w, "uc")) ruc = (unsigned char)rnum;
     else if (!strcmp(w, "ansicpg")) rcp = rnum;
+    else if (!strcmp(w, "endash")) r_uni(0x2013);
+    else if (!strcmp(w, "emdash")) r_uni(0x2014);
+    else if (!strcmp(w, "bullet")) r_uni(0x2022);
+    else if (!strcmp(w, "lquote")) r_uni(0x2018);
+    else if (!strcmp(w, "rquote")) r_uni(0x2019);
+    else if (!strcmp(w, "ldblquo")) r_uni(0x201C);               /* a szo 7 beture vagott (rword[8]) */
+    else if (!strcmp(w, "rdblquo")) r_uni(0x201D);
 }
 
 static unsigned char r_hex(unsigned char c)
@@ -3877,12 +3883,37 @@ static void r_byte(unsigned char c)
 
 /* Charge un fichier RTF comme nouveau document : le texte converti s'empile
    dans la banque 0, puis passe en bloc dans le suffixe (comme load_big). */
-static void load_rtf(void)
+/* Az RTF / szoveg megnyitasa harom reszben (rtf_open) : a / c resz a 10. overlayben, a b a fo ciklus az 1.-ben. */
+static unsigned char rl_ok, rl_first, rl_go;
+
+static void load_rtf_b(void)
 {
-    unsigned char ok = 1, first = 1;
     unsigned k;
-    dpos off, total;
     int n;
+    for (;;) {
+        if (sd_on) {
+            n = SD_SIZE - spos > 256 ? 256 : (int)(SD_SIZE - spos);
+            if (n > 0) { reu_move(1, outbuf, rlim + spos, n); spos += n; }
+        } else n = cbm_read(2, outbuf, 256);
+        if (n <= 0) break;
+        if (rl_first) {
+            rl_first = 0;
+            if (!rtxt && (n < 5 || memcmp(outbuf, "{\\rtf", 5))) { rl_ok = 0; break; }
+        }
+        if (rtxt) for (k = 0; k < (unsigned)n; ++k) t_byte(outbuf[k]);
+        else for (k = 0; k < (unsigned)n; ++k) r_byte(outbuf[k]);
+        pg_add((unsigned)n);
+        if (rfull) break;
+    }
+    if (rl_ok) r_flush();
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY10")
+#pragma rodata-name (push, "OVERLAY10")
+static void load_rtf_a(void)
+{
+    rl_go = 0;
     rlim = suf_end;
     if (!sd_on) scan_dir(filename);             /* la taille du fichier (en blocs) pour la barre de progression */
     disk_busy(1);
@@ -3905,27 +3936,18 @@ static void load_rtf(void)
     rcur = remit = rdepth = rfirst = rst = rskip = rfull = rhex = rneg = 0;
     ruc = 1;
     rcp = 0;
-    for (;;) {
-        if (sd_on) {
-            n = SD_SIZE - spos > 256 ? 256 : (int)(SD_SIZE - spos);
-            if (n > 0) { reu_move(1, outbuf, rlim + spos, n); spos += n; }
-        } else n = cbm_read(2, outbuf, 256);
-        if (n <= 0) break;
-        if (first) {
-            first = 0;
-            if (!rtxt && (n < 5 || memcmp(outbuf, "{\\rtf", 5))) { ok = 0; break; }
-        }
-        if (rtxt) for (k = 0; k < (unsigned)n; ++k) t_byte(outbuf[k]);
-        else for (k = 0; k < (unsigned)n; ++k) r_byte(outbuf[k]);
-        pg_add((unsigned)n);
-        if (rfull) break;
-    }
+    rl_ok = rl_first = rl_go = 1;
+}
+
+static void load_rtf_c(void)
+{
+    unsigned k;
+    dpos off, total;
     if (!sd_on) cbm_close(2);
     disk_busy(0);
     pg_end();
-    op_ok = ok;
-    if (ok) {
-        r_flush();
+    op_ok = rl_ok;
+    if (rl_ok) {
         total = win_base;
         for (off = total; off; ) {              /* de la fin au debut : les zones peuvent se recouvrir */
             k = off > 256 ? 256 : (unsigned)off;
@@ -3955,12 +3977,13 @@ static void load_rtf(void)
 /* L'ecriture RTF est dans l'overlay 6 (avec save_doc et load_named) : l'overlay 1 est plein. */
 #pragma code-name (push, "OVERLAY6")
 #pragma rodata-name (push, "OVERLAY6")
-/* Unicode des codes internes 128 a 181 (copie de ucode, pour cet overlay). */
-static const unsigned ucode_w[54] = {
+/* Unicode des codes internes 128 a 189 (copie de ucode, pour cet overlay). */
+static const unsigned ucode_w[62] = {
     0xE0, 0xE2, 0xE4, 0xE7, 0xE9, 0xE8, 0xEA, 0xEB, 0xEE, 0xEF, 0xF4, 0xF6, 0xF9, 0xFB, 0xFC,
     0xC0, 0xC2, 0xC7, 0xC9, 0xC8, 0xCA, 0xCB, 0xCE, 0xCF, 0xD4, 0xD9, 0xDB, 0xDC,
     0x153, 0x152, 0xAB, 0xBB, 0xB0, 0x20AC, 0xE6, 0xF8, 0xE5, 0xC6, 0xD8, 0xC5,
-    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190
+    0xE1, 0xC1, 0xED, 0xCD, 0xF3, 0xD3, 0xFA, 0xDA, 0x151, 0x150, 0x171, 0x170, 0xD6, 0x2190,
+    0x201E, 0x201D, 0x201C, 0x2018, 0x2019, 0x2013, 0x2014, 0x2022
 };
 /* Ecrit tout le document en RTF (octets non ASCII : \uN?). */
 static unsigned char *w_str(unsigned char *o, const char *s)
@@ -4052,7 +4075,16 @@ static unsigned char write_rtf(char *name)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 
-static void rtf_open(void) { ovl_load(1); load_rtf(); }
+static void rtf_open(void)
+{
+    ovl_load(10);
+    load_rtf_a();
+    if (!rl_go) return;
+    ovl_load(1);
+    load_rtf_b();
+    ovl_load(10);
+    load_rtf_c();
+}
 static void txt_open(void) { rtxt = 1; rtf_open(); rtxt = 0; }
 static unsigned char rtf_write(char *name)
 {
@@ -5171,11 +5203,14 @@ static unsigned char hu_key(void)
 static const unsigned char cbm_keys[]   = { 0xB1, 0xB2, 0xA3, 0xB0, 0xAB, 0xBC, 0xB8, 0xB7, 0xB9, 0xA2, 0xA1, 0xB6, 0xAF };
 static const unsigned char cbm_accent[] = { 132,  133,  134,  128,  129,  131,  140,  141,  138,  136,  137,  135,  156 };
 #endif
+static const unsigned char ctrl_pun[8] = { 0x90, 0x05, 0x1C, 0x9F, 0x9C, 0x1E, 0x1F, 0x9E };   /* CTRL + 1 ... 8 : a KERNAL szinkodjai */
 static unsigned char translate(unsigned char k)
 {
+    unsigned char j;
 #ifndef KBD_HU
     unsigned char i;
 #endif
+    for (j = 0; j < 8; ++j) if (k == ctrl_pun[j]) return 182 + j;           /* „ ” “ ‘ ’ – — • */
 #ifdef KBD_HU
     /* Lettres rendues par hu_key (voir hu_font). */
     if (k >= 0xE0 && k < 0xE0 + 2 * HU_KEYS) return hu_font[k - 0xE0];
@@ -5525,7 +5560,7 @@ static void sbar_drag(void)
 #pragma rodata-name (push, "OVERLAY3")
 static unsigned char wordch(unsigned char c)
 {
-    return (c >= '0' && c <= '9') || ((c | 32) >= 'a' && (c | 32) <= 'z') || c >= 128;
+    return (c >= '0' && c <= '9') || ((c | 32) >= 'a' && (c | 32) <= 'z') || (c >= 128 && c < 182);
 }
 
 static unsigned char endch(unsigned char c)

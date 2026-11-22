@@ -161,7 +161,7 @@ ld:     pha
 ld_end:
         .reloc
 
-; void __fastcall__ font_load(unsigned char small) : la police (font_width + font_bits, 1350 octets) est
+; void __fastcall__ font_load(unsigned char small) : la police (font_width + font_bits, 1422 octets) est
 ; recopiee de la banque 59 (normale) ou 60 (petite) sur la table du programme. Meme technique qu'ovl_load.
         .import _font_width
         .export _font_load
@@ -206,10 +206,10 @@ fnt:    sta OVL_TMP
         inc $FE
         dex
         bne @p
-@q:     lda ($FB),y             ; les 70 octets restants (1350 = 5 * 256 + 70)
+@q:     lda ($FB),y             ; les 142 octets restants (1422 = 5 * 256 + 142)
         sta ($FD),y
         iny
-        cpy #70
+        cpy #142
         bne @q
         lda #$80
         sta $DE00
