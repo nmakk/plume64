@@ -53,7 +53,7 @@ The file requester (Open, Save as with the format buttons), the Find box and the
 ## Install
 
 1. Copy the cartridge for your edition to your SD card or USB drive: [`dist/plumereu-en-26a.crt`](dist/plumereu-en-26a.crt), [`fr`](dist/plumereu-fr-26a.crt), [`dk`](dist/plumereu-dk-26a.crt) or [`hu`](dist/plumereu-hu-26a.crt) (also attached to the [release](https://github.com/nmakk/plume64/releases)). They are Magic Desk cartridges.
-2. On a C64 Ultimate enable the REU (at least 256 KB; 16 MB recommended), then run the `.crt` from the Ultimate's file browser. Files on the SD card, USB and FTP need the Ultimate's command interface (firmware 3.15 / C64U 1.2 or later); Plume checks it at start-up and only shows the *C64U* button when it works. Without it, everything still works on a disk in drive 8.
+2. On a C64 Ultimate enable the REU (at least 256 KB; 16 MB recommended), then run the `.crt` from the Ultimate's file browser. Files on the SD card, USB and FTP need the Ultimate's command interface (tested with firmware 3.14 on an Ultimate II+L and 1.2.1 on a C64 Ultimate); Plume checks it at start-up. Without it the program still starts, but there is no SD, USB or FTP access (it reports "No C64 Ultimate found.") and everything works on a disk in drive 8. Without a REU the program also starts, but no text can be entered: the document lives in the REU.
 3. For disk documents put a disk or a `.d64` / `.d81` in drive 8. [`dist/plume.d64`](dist/plume.d64) is an empty `.d64`.
 
 ## Using it
@@ -99,7 +99,7 @@ Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` 
 
 ## Tested on
 
-A Commodore 64 Ultimate (firmware 1.2.1) with a 16 MB REU, at 1 MHz and 64 MHz, with a real MPS-803. The French, Danish and English editions have had less hardware testing than the Hungarian one; feedback is welcome.
+A Commodore 64 Ultimate (firmware 1.2.1) with a 16 MB REU, at 1 MHz and 64 MHz, with a real MPS-803; and on a real Commodore 64 with an Ultimate II+L cartridge (firmware 3.14) and a REU. The French, Danish and English editions have had less hardware testing than the Hungarian one; feedback is welcome.
 
 ## Building
 
