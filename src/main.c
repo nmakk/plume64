@@ -87,7 +87,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    2640u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -205,7 +205,7 @@ extern unsigned char reu_addr[3];
 extern void reu_stash(void), reu_fetch(void);
 extern unsigned char reu_detect(void);
 void __fastcall__ ovl_load(unsigned char n);   /* charge l'overlay n (banque de la cartouche) */
-#define ROOM     800                    /* place libre minimale dans la fenetre */
+#define ROOM     400                    /* place libre minimale dans la fenetre */
 #define FILL     (MAXDOC - ROOM - 200)  /* remplissage apres un glissement */
 #define STEP     768                    /* taille mini du morceau qui quitte la fenetre */
 static unsigned char reu_on;
@@ -2349,7 +2349,11 @@ static void save_doc(void)
 }
 #endif
 
-static void new_doc(void)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+static void new_doc_(void)
 {
 #ifdef REU
     win_base = suf_len = lines_before = 0; lines_exact = 1; ix_reset();
@@ -2375,6 +2379,13 @@ static void new_doc(void)
 #endif
     layout_all();
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void new_doc(void) { ovl_load(8); new_doc_(); }
+#else
+#define new_doc new_doc_
+#endif
 
 #ifndef REU
 /* PLM1 (versions 1.0 et 1.1) : texte puis un octet de style par caractere.
@@ -2517,11 +2528,12 @@ static void trim_lines(void)
 
 /* Remplit la fenetre depuis le suffixe jusqu'a FILL octets, en retordant a
    partir de la derniere ligne (elle s'arretait au bord de la fenetre). */
+static unsigned fill_lim = FILL;                /* meddig tolti az ablakot a pull_tail (ha egy sort sem lehet eldobni : MAXDOC - ROOM) */
 static void pull_tail(void)
 {
     unsigned m, i;
-    if (doclen >= FILL || !suf_len) return;
-    m = FILL - doclen;
+    if (doclen >= fill_lim || !suf_len) return;
+    m = fill_lim - doclen;
     if (m > suf_len) m = (unsigned)suf_len;
     reu_move(1, text + doclen, suf_end - suf_len, m);
     suf_len -= m;
@@ -2555,11 +2567,12 @@ static void drop_head(unsigned L)
 /* Vers la fin du document : le haut sort, la suite du suffixe entre. */
 static void slide_fwd(void)
 {
-    unsigned L, i = nlines - 1, lim = top > 6 ? top - 6 : 0;      /* on ne touche pas aux lignes de l'ecran */
+    unsigned L, i = nlines - 1, lim = top > 3 ? top - 3 : 0;      /* on ne touche pas aux lignes de l'ecran (3 lignes de marge : une fenetre petite ne doit pas se bloquer) */
     for (L = 1; L < nlines && lstart[L] < STEP; ++L) ;
     if (L > lim) L = lim;
-    if (L) drop_head(L);
+    if (L) drop_head(L); else fill_lim = MAXDOC - ROOM;     /* nincs mit eldobni : az ablak telibb (kis ablak ne akadjon el) */
     pull_tail();
+    fill_lim = FILL;
     draw_lines(i - L, nlines);
 }
 
@@ -2675,8 +2688,8 @@ static void maybe_slide(void)
 {
     if (!reu_on) return;
     if (MAXDOC - doclen < ROOM) { if (top >= 12) slide_fwd(); else slide_back(); }
-    else if (suf_len && top + VISIBLE + 8 > nlines) slide_fwd();       /* le bas de l'ecran approche la fin de la fenetre */
-    else if (win_base && top < 6) slide_back();                         /* le haut de l'ecran approche le debut */
+    else if (suf_len && top + VISIBLE + 4 > nlines) slide_fwd();       /* le bas de l'ecran approche la fin de la fenetre */
+    else if (win_base && top < 3) slide_back();                         /* le haut de l'ecran approche le debut */
     else {
 #ifdef REUTEST
         dbg_state();
@@ -5075,7 +5088,11 @@ static unsigned pos_at(unsigned i, unsigned x)
     return canonical(p);
 }
 
-static unsigned pos_at_mouse(void)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+static unsigned pos_at_mouse_(void)
 {
     unsigned i = top + (mouse_y / 8 >= TEXT_ROW0 ? mouse_y / 8 - TEXT_ROW0 : 0);
 #ifdef REU
@@ -5084,6 +5101,13 @@ static unsigned pos_at_mouse(void)
     if (i >= nlines) i = nlines - 1;
     return pos_at(i, mouse_x >= TEXT_X0 ? mouse_x - TEXT_X0 : 0);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned pos_at_mouse(void) { ovl_load(8); return pos_at_mouse_(); }
+#else
+#define pos_at_mouse pos_at_mouse_
+#endif
 
 static void move_vertical(int d)
 {
@@ -5276,7 +5300,11 @@ static void key_click(void)
 
 #ifdef REU
 /* CLR/HOME : debut de la ligne ; deja au debut : fin de la ligne. */
-static void home_end(void)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+static void home_end_(void)
 {
     unsigned i = line_of(cursor), e;
     if (cursor != lstart[i]) { cursor = lstart[i]; return; }
@@ -5284,6 +5312,13 @@ static void home_end(void)
     if (i + 1 < nlines && e > lstart[i]) --e;
     cursor = canonical(e);
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void home_end(void) { ovl_load(8); home_end_(); }
+#else
+#define home_end home_end_
+#endif
 
 /* Suppression vers l'avant (Shift + CLR/HOME). */
 static void delete_after(void)
@@ -5515,12 +5550,23 @@ static void page_step_(unsigned char down)
 static void page_step(unsigned char down) { ovl_load(6); page_step_(down); }
 
 /* A gorgetosav csuszkaja lenyomva fekete (a kek temaban sotetkek, mert ott alapbol fekete). */
-static void sb_ink(unsigned char pressed)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+static void sb_ink_(unsigned char pressed)
 {
     unsigned char r, d = dark_tone[theme_no];
     if (pressed) d = d ? 0 : COLOR_BLUE;
     for (r = TEXT_ROW0; r < FOOT_ROW; ++r) color_cells(r, 39, 1, (unsigned char)((d << 4) | (COL_BAR & 15)));
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void sb_ink(unsigned char pressed) { ovl_load(8); sb_ink_(pressed); }
+#else
+#define sb_ink sb_ink_
+#endif
 
 static void sbar_drag(void)
 {
@@ -5681,7 +5727,11 @@ static void disk_busy(unsigned char on)
 
 #endif
 
-static void sprites_init(void)
+#ifdef REU
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
+#endif
+static void sprites_init_(void)
 {
     unsigned char i, *spr = (unsigned char *)0xC000;
     memset(spr, 0, 128);
@@ -5692,6 +5742,13 @@ static void sprites_init(void)
     *(unsigned char *)0xCFFA = 47;              /* $CBC0, libre apres lstyle */
     VIC.spr_ena = 0x01;
 }
+#ifdef REU
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void sprites_init(void) { ovl_load(8); sprites_init_(); }
+#else
+#define sprites_init sprites_init_
+#endif
 
 void main(void)
 {
