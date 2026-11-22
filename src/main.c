@@ -923,7 +923,7 @@ static const char *const menu_keys[NMENUS][MENUW] = {
     { "", "", "F1", "", 0 },
 #endif
 #ifdef REU
-    { "F6", "F2", "F4", "", "", "F8", "Ctrl+Z", "Ctrl+Y", 0 },
+    { "F6", "F2", "F4", "", "", "F8", "Restore", "Sh+Restore", 0 },
 #else
     { "F6", "F2", "F4", "", "", "F8", 0 },
 #endif
@@ -1799,26 +1799,10 @@ static void fhl(unsigned char i, unsigned char on)
 
 static unsigned char pick_file_(const char *title, unsigned char newbtn)
 {
-    unsigned char i, sel;
+    unsigned char i, sel, cur = 0;
     char *shown = inputbuf, *b = (char *)outbuf;
     {
         sel = 255;
-        if (pk_first) {                         /* a keret, a cim es a gombok csak egyszer (gorgetes / lapozas utan csak a lista) */
-            pk_first = 0;
-            panel(3, 20, RQ_X, RQ_W);
-            put_text(RQ_X + 16, 4, title, BOLD);
-            if (pk_btn && sd_ok) {              /* hely: Disk / C64U (kulon gombok, a kivalasztott lenyomott) */
-                button_w(24, 7, 48, dlabel, !sd_pk);
-                button_w(80, 7, 48, "C64U", sd_pk);
-            }
-            if (pk_btn && pk_save) {            /* formatum: PLM RTF TXT */
-                button_w(136, 7, 48, "PLM", pk_fm == 0);
-                button_w(192, 7, 48, "RTF", pk_fm == 1);
-                button_w(248, 7, 48, "TXT", pk_fm == 2);
-            }
-            button(RQ_X + RQ_W - 24 - BTN_W, 20, S_CANCEL);
-            if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
-        }
         outline_box(10, 8, 24, 272);            /* a lista: fejlec-sor (utvonal / szabad blokk) + a bejegyzesek */
         if (sd_pk) lp_tail(b);
         else if (blk_free == 0xFFFF) { strcpy(b, S_NODISK); utoa_simple(b + sizeof(S_NODISK) - 1, dev); }
@@ -1838,10 +1822,19 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
         }
         if (fpage) arrow_draw(12, 1);
         if (fmore) arrow_draw(16, 0);
+        if (nfiles && !fgrey(0)) fhl(0, 1);
         while (sel == 255) {
             poll_mouse();
             key = read_key();
             if (key == 3 || on_button(RQ_X + RQ_W - 24 - BTN_W, 20)) break;
+            if (key == 0x11 || key == 0x91) {                   /* nyilak : a kijeloles lep (a lista vegen lapoz) */
+                i = key == 0x11 ? cur + 1 : cur - 1;
+                if (i < nfiles) {
+                    if (!fgrey(i)) { fhl(cur, 0); cur = i; fhl(i, 1); }
+                    key = 0;
+                }
+            }
+            if ((key == ' ' || (key == CR && !newbtn)) && nfiles && !fgrey(cur)) sel = cur;
             if (newbtn && (key == CR || on_button(RQ_X + 24, 20))) sel = 254;
             if (pk_btn && clicked && mouse_y / 8 >= 6 && mouse_y / 8 <= 8) {
                 if (sd_ok && mouse_x >= 24 && mouse_x < 72) sel = 249;
@@ -1866,7 +1859,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                 sel = 252;
             }
         }
-        if (sel < nfiles) fhl(sel, 1);                      /* a valasztott sor kiemelve marad, amig betolt */
+        if (sel < nfiles) { fhl(cur, 0); fhl(sel, 1); }     /* a valasztott sor kiemelve marad, amig betolt */
         if (sel == 253) fpage = key == 0x11 ? fpage + MAXFILES : (fpage > MAXFILES ? fpage - MAXFILES : 0);
         return sel;                             /* 252 / 253 : a hivo ujraolvassa a listat */
     }
@@ -2099,13 +2092,19 @@ static void rq_list(void)
 }
 /* A lemezes torles-valaszto (free_space): csak lemez, meretlekeres nelkul. */
 static void ix_tick(void) { ovl_load(9); ix_tick_(); }
+static void pick_frame_(const char *title, unsigned char newbtn);
+static unsigned char pick_run(const char *title, unsigned char newbtn)
+{
+    if (pk_first) { pk_first = 0; ovl_load(4); pick_frame_(title, newbtn); }
+    ovl_load(7);
+    return pick_file_(title, newbtn);
+}
 static unsigned char pick_file(const char *title, unsigned char newbtn)
 {
     unsigned char r;
     pk_first = 1;
     for (;;) {
-        ovl_load(7);
-        r = pick_file_(title, newbtn);
+        r = pick_run(title, newbtn);
         if (r != 252 && r != 253) return r;
         scan_dir(0);
     }
@@ -2128,8 +2127,7 @@ static unsigned char choose(const char *title, unsigned char save)
         dlabel[1] = dev >= 10 ? '1' : ' ';              /* "D 8" .. "D11" */
         dlabel[2] = (char)('0' + dev % 10);
         rq_list();
-        ovl_load(7);
-        r = pick_file_(title, save);
+        r = pick_run(title, save);
         if (r == 252 || r == 253) continue;     /* gorgo / lapozas : ujraolvasas, csak a lista rajzolodik ujra */
         if (r == 255) break;
         pk_first = 1;
@@ -4567,6 +4565,24 @@ static unsigned size_code(void)
     m = ((unsigned)q[3] << 4) | (q[2] >> 4);      /* MB, 16 MB felett */
     if (m < 1000) return 0x4000 | m;
     return 0x8000 | ((m + 512) >> 10);
+}
+
+/* A fajlvalaszto kerete, cime es gombjai (csak elso rajzolaskor) : a 4. overlayben, hogy a 7. overlayben legyen hely. */
+static void pick_frame_(const char *title, unsigned char newbtn)
+{
+    panel(3, 20, RQ_X, RQ_W);
+    put_text(RQ_X + 16, 4, title, BOLD);
+    if (pk_btn && sd_ok) {              /* hely: Disk / C64U (kulon gombok, a kivalasztott lenyomott) */
+        button_w(24, 7, 48, dlabel, !sd_pk);
+        button_w(80, 7, 48, "C64U", sd_pk);
+    }
+    if (pk_btn && pk_save) {            /* formatum: PLM RTF TXT */
+        button_w(136, 7, 48, "PLM", pk_fm == 0);
+        button_w(192, 7, 48, "RTF", pk_fm == 1);
+        button_w(248, 7, 48, "TXT", pk_fm == 2);
+    }
+    button(RQ_X + RQ_W - 24 - BTN_W, 20, S_CANCEL);
+    if (newbtn) button(RQ_X + 24, 20, S_NEWFILE);
 }
 
 static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
