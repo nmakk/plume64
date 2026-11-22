@@ -3752,6 +3752,12 @@ static void r_style(unsigned char bit)
 /* Destinations ignorees (debut de leur mot, 7 lettres au plus). */
 static const char r_skip[] = "fonttbl colortb stylesh info pict header footer object footnot listtab listove ";
 
+static void r_tab(void)
+{
+    unsigned char i;
+    for (i = 0; i < 4; ++i) r_put(' ');
+}
+
 static void r_word(void)
 {
     const char *k = r_skip, *e;
@@ -3770,7 +3776,7 @@ static void r_word(void)
     else if (!strcmp(w, "ulnone")) rcur &= ~UNDERLINE;
     else if (!strcmp(w, "plain")) rcur &= 8;
     else if (!strcmp(w, "par") || !strcmp(w, "line")) r_put(CR);
-    else if (!strcmp(w, "tab")) r_put(' ');
+    else if (!strcmp(w, "tab")) r_tab();                                 /* mint a Tab billentyu : negy szokoz */
     else if (!strcmp(w, "u")) { r_uni(rneg ? 0 - rnum : rnum); rskip = ruc; }
     else if (!strcmp(w, "uc")) ruc = (unsigned char)rnum;
     else if (!strcmp(w, "ansicpg")) rcp = rnum;
@@ -3783,7 +3789,7 @@ static unsigned char r_hex(unsigned char c)
 
 #define R_ALPHA(c) (((c) | 32) >= 'a' && ((c) | 32) <= 'z')
 
-/* Texte seul (UTF-8 ou ASCII) : fin de ligne CR, LF ou CR LF -> CR ; tabulation -> espace. */
+/* Texte seul (UTF-8 ou ASCII) : fin de ligne CR, LF ou CR LF -> CR ; tabulation -> quatre espaces. */
 static void t_byte(unsigned char c)
 {
     if (rhex) {                                 /* octet de suite UTF-8 */
@@ -3799,7 +3805,7 @@ static void t_byte(unsigned char c)
     rneg = 0;
     if (c == 13) { rneg = 1; r_put(CR); }
     else if (c == 10) r_put(CR);
-    else if (c == 9) r_put(' ');
+    else if (c == 9) r_tab();
     else if (c < 32) return;
     else if (c < 128) r_put(c);
     else if (c >= 0xE0) { rnum = c & 0x0F; rhex = 2; }

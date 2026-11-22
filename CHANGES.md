@@ -16,6 +16,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **File requester from the keyboard**: Up / Down move a highlighted row through the list (paging at the ends), Space or Return open the highlighted file or folder (in Save as, Return still means *New...*), RUN/STOP cancels.
 - **Undo / Redo labels**: the Edit menu shows `Restore` and `Sh+Restore` next to Undo and Redo (they were `Ctrl+Z` and `Ctrl+Y`, which still work).
 - **File requester redraw**: entering a folder redraws only the list, and switching drive, place (*D* / *C64U*) or format (*PLM* / *RTF* / *TXT*) redraws only the button row and the list; the whole requester and the editor behind it are no longer repainted.
+- **Tabs on import**: an RTF `\tab` and a tab character of a text file become four spaces, like the Tab key (CTRL+I, or the pound key in the Hungarian layout); before they were one space.
 - **Pressed controls are visible**: the scroll bar thumb turns black while it is held (dark blue in the blue colour theme, where it is black anyway), and the file picked in the file requester keeps a highlighted background while it loads or the folder opens.
 - **Version**: the About box and the cartridge file names say 26b.
 
