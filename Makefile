@@ -7,7 +7,13 @@ LANGS := fr en dk hu
 SRC   := src/main.c src/gfx.s src/font.s
 PAGES  = $(shell python3 -I -c "import os,sys;print((os.path.getsize(sys.argv[1])-2+255)//256)" $<)
 
-.PHONY: all clean
+.DEFAULT_GOAL := all
+.PHONY: all clean FORCE
+# Build id for the About box: git short hash, + when the sources are modified. build/build.h only changes when the id changes.
+build/build.h: FORCE
+	@mkdir -p build
+	@id=$$(git rev-parse --short HEAD 2>/dev/null || echo dev); git diff --quiet HEAD -- src Makefile plume-reu.cfg tools/*.py fonts 2>/dev/null || id=$$id+; \
+	echo "#define BUILD \"$$id\"" > build/build.tmp; cmp -s build/build.tmp $@ || mv build/build.tmp $@; rm -f build/build.tmp
 VER := 26b
 # The original (non-REU) Plume builds are no longer part of the default target (no space left for new features);
 # build them explicitly with `make build/plume-XX.crt`.
@@ -36,7 +42,7 @@ build/plume-hu.prg: $(SRC) src/strings.h src/charmap.h
 # Magic Desk (la RAM d'E/S2 de l'EasyFlash masque les registres du REU).
 SRC_REU := $(SRC) src/reu.s
 define REU_RULE
-build/plume-$(1)-reu.prg: $$(SRC_REU) $(3) src/strings.h src/charmap.h plume-reu.cfg
+build/plume-$(1)-reu.prg: $$(SRC_REU) $(3) src/strings.h src/charmap.h plume-reu.cfg build/build.h
 	@mkdir -p build/$(1)-reu
 	cl65 -t c64 -C plume-reu.cfg -O -Or -Cl -DREU $(2) -o $$@ -m build/plume-$(1)-reu.map --obj-path build/$(1)-reu $$(SRC_REU) $(3)
 endef

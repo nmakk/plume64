@@ -5197,6 +5197,14 @@ static unsigned char hu_key(void)
     asm("sei");
     POKE(0xDC00, 0x7F);                 /* rangee 7 : C=, et q */
     if (PEEK(0xDC01) & 0x20) {          /* C= relachee */
+        if (hu_last >= 0xF4 && hu_last < 0xFE) {        /* kurzor-kijeloles utan : amig a kurzorbillentyu lenn van, a KERNAL kodjait eldobjuk (0xFD) */
+            POKE(0xDC00, 0xFE);
+            c = PEEK(0xDC01);
+            POKE(0xDC00, 0x7F);
+            asm("cli");
+            hu_last = (c & 0x84) != 0x84 ? 0xFD : 0xFF;
+            return 0;
+        }
         asm("cli");
         hu_last = 0xFF;
         return 0;

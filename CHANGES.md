@@ -24,6 +24,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **Pound key**: in the Hungarian layout the `£` key types `€` (as on the C64 keyboard layout) instead of a Tab; the Tab is `CTRL`+`I` (and the Edit menu entry).
 - **RUN/STOP in the Help menu**: *Menu (on / off)* with a `RUN/STOP` key cap teaches how to open and close the menu bar from the keyboard; it carries the `*` mark (the menu is on while you see it), and choosing it only closes the menu.
 - **Pressed controls are visible**: the scroll bar thumb turns black while it is held (dark blue in the blue colour theme, where it is black anyway), and the file picked in the file requester keeps a highlighted background while it loads or the folder opens.
+- **Build id**: the About box shows `26b #<git hash>` (a `+` after the hash means the sources had uncommitted changes), so you can tell which build is running; `make` writes it to `build/build.h`.
 - **Version**: the About box and the cartridge file names say 26b.
 
 ### Fixes
@@ -33,6 +34,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **C= + cursor selection**: the KERNAL's own cursor code (`$9D` / `$91` ...) leaked through while C= was held and cleared the selection, so it restarted at the cursor (mostly going right and down, more often at 1 MHz); those codes are now dropped while C= is down. The selection also no longer restarts when the window slides forward during the selection.
 - **1351 mouse and C=**: the keyboard matrix is scanned once per jiffy, because writing `$DC00` also flips the SID POT port select, which made a 1351 mouse in port 1 jump while C= was held.
 - **RESTORE during bitmap drawing**: `_nmi_off` also sets the RAM NMI vector (`$FFFA/B`), so RESTORE cannot jump into garbage while the KERNAL ROM is banked out.
+- **C= released first**: after C= + cursor selection, letting go of C= while the cursor key is still down no longer clears the selection (the KERNAL's plain cursor codes are dropped until the key is up).
 - **Pointer first row**: on a C64 Ultimate II+ (firmware 3.14) one 256-byte REU read wrote a stray byte to `$C000`, the first byte of the pointer sprite, which drew an extra horizontal line in the first row of the pointer or the hourglass. The main loop now restores that byte on every pass, and the hourglass has an empty top row so that both pointers start with the same byte. The stray write also happens in 26a, so it is not caused by the long names; it was not seen on a C64 Ultimate (firmware 1.2.1).
 - **Memory**: the C stack is 256 bytes (was 384; the deepest use measured is under 64 bytes), which gives the program 128 bytes more; there is a tenth overlay (cartridge bank 58) for the next features.
 - **Window size**: the RAM editing window is 3250 bytes as in 26a. The room for the new code came from moving rarely used functions (`home_end`, `pos_at_mouse`, `new_doc`, `sprites_init`, `sb_ink`, `hun_toggle`) to overlay 8, the 256-byte stack and the menu moving to overlay 10.
