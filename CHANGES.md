@@ -24,6 +24,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **Pound key**: in the Hungarian layout the `£` key types `€` (as on the C64 keyboard layout) instead of a Tab; the Tab is `CTRL`+`I` (and the Edit menu entry).
 - **RUN/STOP in the Help menu**: *Menu (on / off)* with a `RUN/STOP` key cap teaches how to open and close the menu bar from the keyboard; it carries the `*` mark (the menu is on while you see it), and choosing it only closes the menu.
 - **Pressed controls are visible**: the scroll bar thumb turns black while it is held (dark blue in the blue colour theme, where it is black anyway), and the file picked in the file requester keeps a highlighted background while it loads or the folder opens.
+- **`*` in the file requester**: a file that has a quick save (`.bck`) is marked with a `*` at the left edge of the list in Open and Save as, on the C64U (SD / USB, probed by opening `NAME.bck`) and on IEC disks (a filtered directory read `$0:NAME.BCK` per visible row).
 - **Build id**: the About box shows `26b #<git hash>` (a `+` after the hash means the sources had uncommitted changes), so you can tell which build is running; `make` writes it to `build/build.h`.
 - **Version**: the About box and the cartridge file names say 26b.
 

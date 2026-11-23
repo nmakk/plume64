@@ -64,7 +64,7 @@ The file requester (Open with its *Open* button, Save as with the format buttons
 
 **Pointer**: a 1351 mouse on port 1 (a USB mouse on the C64 Ultimate; with a wheel if *Mouse Mode* is *Mouse + Wheel*), or a joystick on port 2 or 1 (one pixel per frame for precise aiming, then faster; fire clicks; hold fire while moving to select). Port 2 is better: port 1 shares its wires with the keyboard, so the keyboard is ignored while a port 1 joystick moves.
 
-**Files**: *File → Open…* opens any format; *Save* and *Quick save* keep the document's format and place; *Save as…* opens the requester with the *PLM* / *RTF* / *TXT* buttons (a new document starts with RTF). A name typed without an extension gets the format's extension. The `.bck` files of the quick save are hidden in the requester. Clicking *Disk* again steps to the next IEC drive that answers (`D 8`..`D 11`).
+**Files**: *File → Open…* opens any format; *Save* and *Quick save* keep the document's format and place; *Save as…* opens the requester with the *PLM* / *RTF* / *TXT* buttons (a new document starts with RTF). A name typed without an extension gets the format's extension. The `.bck` files of the quick save are hidden in the requester; a file that has one is marked with a `*` at the left edge of the list (changes that are only quick saved). Clicking *Disk* again steps to the next IEC drive that answers (`D 8`..`D 11`).
 
 ### Editions
 
@@ -115,7 +115,7 @@ Under `C=` each key gives its original C64 symbol: `C=` + `1` … `9` gives `!` 
 **Good to know.**
 - The `.bck` is only valid for the file it was made for. When you copy a document to another place, copy the `.bck` with it, or do a full *Save* first.
 - The journal holds about 256 KB of edits and 40,000 records (16 KB and 2,500 on a REU under 2 MB). When it is full, `F1` does a full save instead and starts a new journal.
-- The `.bck` files are hidden in the file requester, so they cannot be opened by mistake.
+- The `.bck` files are hidden in the file requester, so they cannot be opened by mistake; a `*` at the left of a file name tells that it has a `.bck` (on the SD card by trying to open `NAME.bck`, on a disk by a filtered directory read of `$0:NAME.BCK`).
 - On a C64 Ultimate the keyboard LED lights while there are unsaved changes and goes out after `F1` or *Save*.
 
 ## Tested on

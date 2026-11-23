@@ -1668,6 +1668,7 @@ static unsigned char is_bck(const char *n)
     return l > 4 && n[l - 4] == '.' && (n[l - 3] & 0x5F) == 0x42 && (n[l - 2] & 0x5F) == 0x43 && (n[l - 1] & 0x5F) == 0x4B;
 }
 static unsigned blk_free, blk_old, fsize[MAXFILES];
+static unsigned char fbck;                      /* a lista i. fajljanak van .bck-ja (bit i) : csillag */
 static unsigned char nfiles, fmore;
 static unsigned fpage;                          /* a lista elejen atugrott bejegyzesek szama (gorgo: 1-gyel, nyil: egy oldallal) */
 
@@ -1819,6 +1820,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
         else if (blk_free == 0xFFFF) { strcpy(b, S_NODISK); utoa_simple(b + sizeof(S_NODISK) - 1, dev); }
         else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(32, 11, b, BOLD);
+        if (pk_btn) for (i = 0; i < MAXFILES; ++i) clear_cells((unsigned char)(12 + i), 16, 8);       /* a csillag oszlopa a lista keretene kivul van : sajat torles */
         for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
             if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
             else if (fsize[i] == 0xFFFD) strcpy(b, "?");
@@ -1829,6 +1831,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
             io_show();
             petscii_to_text(shown, shown);
             put_text(72, (unsigned char)(12 + i), shown, 0);
+            if (pk_btn && (fbck & (1 << i))) put_text(20, (unsigned char)(12 + i), "*", 0);       /* van .bck : mentetlen valtozas */
             if (fgrey(i)) color_cells((unsigned char)(12 + i), 4, 31, (unsigned char)((dark_tone[theme_no] << 4) | (COL_PAGE & 15)));   /* szurke: nem valaszthato */
         }
         if (fpage) arrow_draw(12, 1);
@@ -2082,6 +2085,7 @@ static void rq_title_(void)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 static void rq_sizes_(void);
+static void rq_bck_(void);
 static unsigned char file_commit_(const char *title, unsigned char save, unsigned char newname);
 /* Lista kirajzolasa utani ujraolvasas (gorgetes / lapozas utan is): beolvas, a tulgorgetest visszaigazitja, az SD-fajlok meretet lekerdezi. */
 static unsigned char lp(unsigned char op) { ovl_load(7); return lp_op_(op); }
@@ -2102,7 +2106,10 @@ static void rq_list(void)
         }
         break;
     }
-    if (sd_pk) { ovl_load(4); rq_sizes_(); disk_busy(0); }
+    if (sd_pk) { ovl_load(4); rq_sizes_(); }
+    ovl_load(1);
+    rq_bck_();
+    if (sd_pk) disk_busy(0);
 }
 /* A lemezes torles-valaszto (free_space): csak lemez, meretlekeres nelkul. */
 static void ix_tick(void) { ovl_load(9); ix_tick_(); }
@@ -4670,6 +4677,7 @@ static void pick_frame_(const char *title, unsigned char newbtn)
 static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
 {
     unsigned char r, pc;
+    if (!sd_pk) return;
     strcpy(sd_tmp, SD_NAME);                    /* a dokumentum sajat neve */
     pc = PEEK(0xCB00);
     POKE(0xCB00, 0);                             /* a konyvtar mar be van allitva : nincs ujabb chdir */
@@ -4687,6 +4695,48 @@ static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az
     POKE(0xCB00, pc);                           /* (SD_PATH[0] = pc : a cc65 itt egy elavult mutatora irt) */
     strcpy(SD_NAME, sd_tmp);
     sd_bad = 0;
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY1")
+#pragma rodata-name (push, "OVERLAY1")
+static void rq_bck_(void)                      /* melyik listabeli fajlnak van .bck-ja (csak a valasztoban) */
+{
+    unsigned char i, k, n, c, d[4];
+    char *e;
+    unsigned char pc = PEEK(0xCB00);
+    fbck = 0;
+    if (!pk_btn) return;
+    if (sd_pk) POKE(0xCB00, 0);                   /* a konyvtar mar be van allitva : nincs ujabb chdir */
+    for (i = 0; i < nfiles; ++i) {
+        if (sd_pk) {                            /* SD : megprobaljuk megnyitni a NEV.bck fajlt */
+            if (fsize[i] >= 0xFFFD) continue;
+            io_hide();
+            strcpy(SD_NAME, rawn[i]);
+            io_show();
+            if (strlen(SD_NAME) > 58) continue;
+            e = strrchr(SD_NAME, '.');
+            if (!e) e = SD_NAME + strlen(SD_NAME);
+            strcpy(e, ".bck");
+            if (!sd_open(1)) { sd_close(); fbck |= (unsigned char)(1 << i); }
+        } else {                                /* lemez : szurt konyvtar ($0:NEV.BCK) : fejlec + talalat + szabad blokkok = 3 sor */
+            strcpy(cmdname, "$0:");
+            io_hide();
+            for (k = 0; k < 12 && names[i][k] && names[i][k] != '.'; ++k) cmdname[3 + k] = names[i][k];
+            io_show();
+            strcpy(cmdname + 3 + k, ".\x42\x43\x4B");
+            if (cbm_open(1, dev, 0, cmdname)) continue;
+            cbm_read(1, d, 2);
+            for (n = 0; cbm_read(1, d, 4) == 4 && d[1]; ++n) do c = 0; while (cbm_read(1, &c, 1) == 1 && c);
+            cbm_close(1);
+            if (n > 2) fbck |= (unsigned char)(1 << i);
+        }
+    }
+    if (sd_pk) {
+        POKE(0xCB00, pc);
+        strcpy(SD_NAME, sd_tmp);
+        sd_bad = 0;
+    }
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
