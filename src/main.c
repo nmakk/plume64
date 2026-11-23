@@ -1185,8 +1185,12 @@ static unsigned char read_key(void)
         POKE(198, 0);
         return k;
     }
-#endif
+    k = cbm_k_getin();
+    if ((PEEK(0x028D) & 2) && (k == 0x1D || k == 0x9D || k == 0x11 || k == 0x91)) return 0;     /* C= + kurzor : a KERNAL kodja nem torolheti a kijelolest */
+    return k;
+#else
     return cbm_k_getin();
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -3545,7 +3549,7 @@ static void APPLY_STYLE(unsigned char bit)
         }
     } else {
 #ifdef REU
-        if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, S_BIGSEL2, 0); return; }
+        if (!sel_in_window()) { message(S_BIGSEL, S_BIGSEL1, 0, 0); return; }
 #endif
         a = sel_lo();
         b = sel_hi();
@@ -5182,9 +5186,14 @@ static unsigned char hu_t, hu_rep;      /* a kurzorbillentyuk ismetlese */
    ou 0 si C= est relachee ou si la touche a deja ete comptee. $028D dirait
    l'etat de C=, mais le KERNAL le remet a zero pendant sa propre scrutation :
    on lit la matrice (rangee 7, bit 5). */
+static unsigned char hu_scan;           /* az utolso vizsgalat idopontja ($A2) */
 static unsigned char hu_key(void)
 {
     unsigned char i, c, d, shift;
+    c = PEEK(0xA2);
+    if (c == hu_scan) return 0;
+    /* once per jiffy: writing $DC00 also flips the POT port select (1351 jitter) */
+    hu_scan = c;
     asm("sei");
     POKE(0xDC00, 0x7F);                 /* rangee 7 : C=, et q */
     if (PEEK(0xDC01) & 0x20) {          /* C= relachee */
@@ -5375,26 +5384,35 @@ static void hun_toggle(void) { ovl_load(8); hun_toggle_(); }
 
 /* C= + kurzor : kijeloles a kurzor mozgatasaval (a 9. overlayben). */
 #ifdef REU
-#pragma code-name (push, "OVERLAY9")
-#pragma rodata-name (push, "OVERLAY9")
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
 #endif
 static void selmove_(unsigned char k)
 {
-    unsigned a = anchor == NOSEL ? cursor : anchor, oc = cursor;
+    unsigned oc = cursor, nc, a;
+    unsigned char ext = (anchor == NOSEL && (k == 0xF5 || k == 0xF7) && oc < doclen);     /* visszafele indulva a kurzor alatti karakter is a kijelolesbe esik */
+#ifdef REU
+    unsigned wb = (unsigned)win_base;       /* a mozgatas az ablakot is csusztathatja (az anchor-t az anchor_fix kovetia) */
+#endif
     if (k == 0xF4 || k == 0x1D) move_right();
     else if (k == 0xF5 || k == 0x9D) move_left();
     else move_vertical(k == 0xF6 || k == 0x11 ? 1 : -1);
     /* a regi kijeloles hatarai a regi kurzorral szamolodnak (az ujrarajzolashoz) */
-    {
-        unsigned nc = cursor;
-        cursor = oc;
-        set_selection(a, nc);
-    }
+    nc = cursor;
+#ifdef REU
+    oc -= (unsigned)win_base - wb;
+#endif
+    cursor = oc;
+    a = anchor;
+    if (a == NOSEL) a = oc + ext;
+    else if (oc >= a) { if (nc < a && a < doclen) ++a; }        /* a kiindulo karakter az iranyvaltasnal is a kijelolesben marad */
+    else if (nc >= a) --a;
+    set_selection(a, nc);
 }
 #ifdef REU
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void selmove(unsigned char k) { ovl_load(9); selmove_(k); }
+static void selmove(unsigned char k) { ovl_load(8); selmove_(k); }
 #else
 #define selmove selmove_
 #endif

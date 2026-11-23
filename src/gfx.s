@@ -800,21 +800,11 @@ _cursor_off:
         sta shown
         rts
 
-; Allume pres d'une demi-seconde, eteint autant ; cache pendant une selection.
+; Allume pres d'une demi-seconde, eteint autant (clignote aussi pendant une selection : la barre est entre deux caracteres).
 _blink_cursor:
         lda #$80                ; a C64 Ultimate II+ (3.14) egyes REU-olvasasai egy bajtot irnak a $C000 cimre (a nyil elso sora) : a nyil es a homokora elso sora is $80
         sta $C000
-        lda _anchor
-        and _anchor+1
-        cmp #$FF
-        beq @nosel
-        lda _anchor
-        cmp _cursor
-        bne @off
-        lda _anchor+1
-        cmp _cursor+1
-        bne @off
-@nosel: lda $A2
+        lda $A2
         sec
         sbc blink_t
         and #$20
@@ -845,8 +835,10 @@ _nmi_off:
         sei
         lda #<@rti
         sta $0318
+        sta $FFFA               ; a RAM-vektor is (a KERNAL ROM alatt) : a bitterkepet rajzolo $34 / $35 ablakban a RESTORE nem ugorhat a szemetbe
         lda #>@rti
         sta $0319
+        sta $FFFB
         cli
         rts
 @rti:   inc _nmi_hit            ; RESTORE = annuler (le programme lit le drapeau)
