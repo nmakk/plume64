@@ -127,7 +127,7 @@
 #define S_ABOUT1     S_NAME " " S_VER
 #endif
 #ifdef REU
-#define S_ABOUT2     "Plume for C64 + REU."
+#define S_ABOUT2     "Plume, C64 + REU."
 #define S_ABOUT3     "Plume: LABBEJ27."
 #define S_ABOUT5     "PlumE: Norbert Makk."
 #define S_ABOUT6     "HU keys: mkckOner."

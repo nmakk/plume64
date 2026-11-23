@@ -1668,7 +1668,7 @@ static unsigned char is_bck(const char *n)
     return l > 4 && n[l - 4] == '.' && (n[l - 3] & 0x5F) == 0x42 && (n[l - 2] & 0x5F) == 0x43 && (n[l - 1] & 0x5F) == 0x4B;
 }
 static unsigned blk_free, blk_old, fsize[MAXFILES];
-static unsigned char fbck;                      /* a lista i. fajljanak van .bck-ja (bit i) : csillag */
+static unsigned char fbck[MAXFILES];           /* a lista i. fajljanak van .bck-ja (bit i) : csillag */
 static unsigned char nfiles, fmore;
 static unsigned fpage;                          /* a lista elejen atugrott bejegyzesek szama (gorgo: 1-gyel, nyil: egy oldallal) */
 
@@ -1804,9 +1804,17 @@ static void arrow_draw(unsigned char row, unsigned char up)
 }
 
 /* A lista kijelolt sora : elkulonulo (a lap szineinek megfordito) hatter. */
+/* A .bck-t jelzo csillag: lila (a PlumE E-je), a sor hatterevel ; on = 0 : ki is rajzolja. */
+static void star_col(unsigned char i, unsigned char on)
+{
+    if (!pk_btn || !fbck[i]) return;
+    color_cells((unsigned char)(12 + i), 4, 1, (unsigned char)((accent[theme_no] << 4) | (col[on] & 15)));
+    if (!on) put_text(32, (unsigned char)(12 + i), "*", 0);
+}
 static void fhl(unsigned char i, unsigned char on)
 {
     color_cells((unsigned char)(12 + i), 4, 31, on ? COL_BAR : COL_PAGE);
+    star_col(i, on);
 }
 
 static unsigned char pick_file_(const char *title, unsigned char newbtn)
@@ -1820,7 +1828,6 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
         else if (blk_free == 0xFFFF) { strcpy(b, S_NODISK); utoa_simple(b + sizeof(S_NODISK) - 1, dev); }
         else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(32, 11, b, BOLD);
-        if (pk_btn) for (i = 0; i < MAXFILES; ++i) clear_cells((unsigned char)(12 + i), 16, 8);       /* a csillag oszlopa a lista keretene kivul van : sajat torles */
         for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
             if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
             else if (fsize[i] == 0xFFFD) strcpy(b, "?");
@@ -1831,8 +1838,8 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
             io_show();
             petscii_to_text(shown, shown);
             put_text(72, (unsigned char)(12 + i), shown, 0);
-            if (pk_btn && (fbck & (1 << i))) put_text(20, (unsigned char)(12 + i), "*", 0);       /* van .bck : mentetlen valtozas */
             if (fgrey(i)) color_cells((unsigned char)(12 + i), 4, 31, (unsigned char)((dark_tone[theme_no] << 4) | (COL_PAGE & 15)));   /* szurke: nem valaszthato */
+            star_col(i, 0);
         }
         if (fpage) arrow_draw(12, 1);
         if (fmore) arrow_draw(16, 0);
@@ -4705,7 +4712,7 @@ static void rq_bck_(void)                      /* melyik listabeli fajlnak van .
     unsigned char i, k, n, c, d[4];
     char *e;
     unsigned char pc = PEEK(0xCB00);
-    fbck = 0;
+    memset(fbck, 0, MAXFILES);
     if (!pk_btn) return;
     if (sd_pk) POKE(0xCB00, 0);                   /* a konyvtar mar be van allitva : nincs ujabb chdir */
     for (i = 0; i < nfiles; ++i) {
@@ -4718,7 +4725,7 @@ static void rq_bck_(void)                      /* melyik listabeli fajlnak van .
             e = strrchr(SD_NAME, '.');
             if (!e) e = SD_NAME + strlen(SD_NAME);
             strcpy(e, ".bck");
-            if (!sd_open(1)) { sd_close(); fbck |= (unsigned char)(1 << i); }
+            if (!sd_open(1)) { sd_close(); fbck[i] = 1; }
         } else {                                /* lemez : szurt konyvtar ($0:NEV.BCK) : fejlec + talalat + szabad blokkok = 3 sor */
             strcpy(cmdname, "$0:");
             io_hide();
@@ -4729,7 +4736,7 @@ static void rq_bck_(void)                      /* melyik listabeli fajlnak van .
             cbm_read(1, d, 2);
             for (n = 0; cbm_read(1, d, 4) == 4 && d[1]; ++n) do c = 0; while (cbm_read(1, &c, 1) == 1 && c);
             cbm_close(1);
-            if (n > 2) fbck |= (unsigned char)(1 << i);
+            if (n > 2) fbck[i] = 1;
         }
     }
     if (sd_pk) {
