@@ -3077,7 +3077,7 @@ static void print_graphics(void)
     wrap_width = PRINT_W;
     while (print_ok && !stop_pressed()) {
         n = next_line(p, st);
-        memset(strip, 0, sizeof strip);
+        memset(strip, 0, PRINT_CARDS * 8);      /* nem sizeof : REU-ban az outbuf mutato */
         gbase = (unsigned)strip;
         x = PRINT_LEFT;
         for (q = p; q < n; ++q) {
