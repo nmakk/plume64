@@ -29,6 +29,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 - **Version**: the About box and the cartridge file names say 26b.
 
 ### Fixes
+- **Graphics printing**: the line buffer was not cleared between lines (REU build), so the lines piled up into a black page. Printing now also uses the current font: a document in the small font is printed small (more characters per line).
 - **Window sliding**: the window slides forward when the bottom of the screen is within 4 lines of its end and back when the top is within 3 lines of its start (it was 8 and 6), keeps 3 lines above the screen, leaves 400 bytes free (was 800), and if no line can be dropped it fills the window up to its free-space limit instead of stalling. With a small window or long dense lines the cursor could stop for good in a long document (and the click under the scroll bar did nothing); checked on a 180 KB document with 300 steps down, 100 up and both page clicks.
 - **Stale paging arrow**: after reading a drive without a disk the file requester kept showing the *more files* arrow of the previous list.
 - **Style indicator**: with the cursor on the first letter of a bold, italic or underlined run the B/I/U indicator showed plain text until the cursor moved to the second letter. It now shows the style of the character under the cursor (the cursor sits before the style marker; the indicator looks past it).

@@ -3202,14 +3202,7 @@ static void print_doc(unsigned char mode)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 #ifdef REU
-static void print_run(unsigned char mode)
-{
-    unsigned char s = small_font;
-    if (s) set_small(0);                        /* a nyomtatas a normal betukeszlettel tordel */
-    ovl_load(2);
-    print_doc(mode);
-    if (s) set_small(1);
-}
+static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }      /* a nyomtatas az aktualis betukeszlettel tordel es rajzol */
 #else
 static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }
 #endif
