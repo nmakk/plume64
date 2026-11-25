@@ -1734,7 +1734,71 @@ static unsigned char is_bck(const char *n)
     return l > 4 && n[l - 4] == '.' && (n[l - 3] & 0x5F) == 0x42 && (n[l - 2] & 0x5F) == 0x43 && (n[l - 1] & 0x5F) == 0x4B;
 }
 static unsigned blk_free, blk_old, fsize[MAXFILES];
-static unsigned char fbck[MAXFILES];           /* a lista i. fajljanak van .bck-ja (bit i) : csillag */
+static unsigned char fbck[MAXFILES];           /* a lista i. fajljanak van .bck-ja : csillag */
+static unsigned char info_i;                    /* FTP-n a meretek hatterben, soronkent toltodnek : a kovetkezo sor */
+extern unsigned char ovl_cur;
+static void info_step(void);
+/* Az SD-fajl, amely nem fer a dokumentum tenyleges helyere (a REU merete szerint), szurke, nem valaszthato.
+   fgr[] : az rq_sizes_ szamolja a pontos bajtmeretbol (PLM : a fajl ; RTF : a fajl + 8 K ; egyeb szoveg : a fajl ketszerese + 8 K,
+   mert az SD-fajl is a REU-ba kerul, mellette a atalakitott szoveg). */
+static unsigned char fgr[MAXFILES];
+static unsigned char fgrey(unsigned char i)
+{
+    return sd_pk && (fgr[i] || fsize[i] == 0xFFFD);
+}
+
+static void draw_size(unsigned char i)         /* a lista i. sorabol a meret (DIR / blokk / K, M, G ; ? : ismeretlen), jobbra igazitva */
+{
+    char *b = (char *)outbuf;
+    if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
+    else if (fsize[i] >= 0xFFFC) strcpy(b, "?");
+    else { b = utoa_simple(b, fsize[i] & 0x3FFF); if (sd_pk) *b++ = "KMG"[fsize[i] >> 14]; *b = 0; b = (char *)outbuf; }
+    put_text(64 - text_width(b, 0), (unsigned char)(12 + i), b, 0);
+}
+static unsigned info_lx, info_ly;
+extern unsigned char inp_latch, inp_clk;        /* gfx.s : az IRQ altal elkapott egergorgo (0x40 fel / 0x80 le) es a kattintasok (lenyomas-elek) szama */
+static unsigned char info_clk;                  /* a lepes alatt elkapott, meg feldolgozatlan kattintasok */
+#define INFO_IDLE 45                            /* ennyi jiffy (kb. 0,75 s) nyugalom kell az elso lepeshez (egy kattintas / billentyu ido), lepesek kozott INFO_GAP */
+#define INFO_GAP  15
+static unsigned char info_a2;
+static void info_tick(void)                     /* ha semmi nem mozdult (egy sor 0,5-1 s) : a kovetkezo sor adatai ; a lepes alatti kattintas / gorgetes nem vesz el */
+{
+    unsigned char now = PEEK(0xA2);
+    if (info_clk) { --info_clk; clicked = 1; return; }      /* a lepes alatti tovabbi kattintasok (dupla kattintas) : ciklusonkent egy */
+    if (key || clicked || wheel || PEEK(198) || mouse_x != info_lx || mouse_y != info_ly) { info_lx = mouse_x; info_ly = mouse_y; info_a2 = now; }
+    else if ((unsigned char)(now - info_a2) >= INFO_IDLE) {
+        inp_latch = inp_clk = 0;
+        info_step();
+        mouse_info(&mi);
+        mouse_x = mi.pos.x;
+        mouse_y = (unsigned char)mi.pos.y;
+        if (inp_clk) {                          /* kattintas(ok) a lepes alatt : most dolgozzuk fel (ha a gomb meg lenn van, a kovetkezo poll nem ismeri fel ujra) */
+            clicked = 1;
+            info_clk = (unsigned char)(inp_clk - 1);
+            if ((mi.buttons & MOUSE_BTN_LEFT) || (joy_read() & 0x10)) last_buttons = 1;
+        }
+        if (inp_latch & 0xC0) { wheel = (inp_latch & 0x40) ? 4 : 8; wheel_n = 1; }
+        info_a2 = (unsigned char)(PEEK(0xA2) - (INFO_IDLE - INFO_GAP));      /* a kovetkezo lepesig csak INFO_GAP nyugalom */
+    }
+}
+/* A konyvtar olvasasakor latott .bck fajlok alapnevenek hash-e (korgyuru) : a csillaghoz nem kell fajlonkent megnyitni / lemezen szurt konyvtarat kerni. */
+#define NBH 48
+static unsigned bckh[NBH];
+static unsigned char bhn, bhi;
+static unsigned bck_hash(const char *n, unsigned char first)     /* az alapnev : az elso (lemez) vagy az utolso (SD) pontig ; kis- es nagybetu egyenlo */
+{
+    unsigned h = 0;
+    const char *e = first ? strchr(n, '.') : strrchr(n, '.');
+    if (!e) e = n + strlen(n);
+    for (; n < e; ++n) h = h * 31 + (*n | 0x20);
+    return h ? h : 1;
+}
+static void bck_note(const char *n, unsigned char first)
+{
+    bckh[bhi] = bck_hash(n, first);
+    if (++bhi == NBH) bhi = 0;
+    if (bhn < NBH) ++bhn;
+}
 static unsigned char nfiles, fmore;
 static unsigned fpage;                          /* a lista elejen atugrott bejegyzesek szama (gorgo: 1-gyel, nyil: egy oldallal) */
 
@@ -1745,6 +1809,7 @@ static void scan_dir(const char *find)
     unsigned char r;
     unsigned tot = 0, skip = fpage;
     nfiles = fmore = 0;
+    bhn = bhi = 0;
     blk_free = 0xFFFF;
     blk_old = 0;
     if (cbm_opendir(1, dev)) return;
@@ -1754,7 +1819,7 @@ static void scan_dir(const char *find)
         if (r) break;
         if (e.type != CBM_T_SEQ) continue;
         if (find && !strcmp(e.name, find)) blk_old = e.size;
-        if (pk_btn && is_bck(e.name)) continue;    /* csak a Plume valasztojaban (Open / Save as) */
+        if (pk_btn && is_bck(e.name)) { bck_note(e.name, 1); continue; }    /* csak a Plume valasztojaban (Open / Save as) */
         if (tot >= skip && nfiles < MAXFILES) { fsize[nfiles] = e.size; io_hide(); strcpy(names[nfiles++], e.name); io_show(); }
         ++tot;
     }
@@ -1895,10 +1960,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
         else strcpy(utoa_simple(b, blk_free), S_BLKFREE);
         put_text(32, 11, b, BOLD);
         for (i = 0; i < nfiles; ++i) {          /* meret jobbra igazitva (DIR / blokk / K), aztan a nev */
-            if (fsize[i] == 0xFFFF) strcpy(b, "DIR");
-            else if (fsize[i] == 0xFFFD) strcpy(b, "?");
-            else { b = utoa_simple(b, fsize[i] & 0x3FFF); if (sd_pk) *b++ = "KMG"[fsize[i] >> 14]; *b = 0; b = (char *)outbuf; }
-            put_text(64 - text_width(b, 0), (unsigned char)(12 + i), b, 0);
+            draw_size(i);
             io_hide();
             strcpy(shown, names[i]);
             io_show();
@@ -1913,6 +1975,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
         while (sel == 255) {
             poll_mouse();
             key = read_key();
+            if (info_i < nfiles || info_clk) info_tick();   /* FTP : a meretek sorrol sorra, amig nem nyulsz hozza */
             if (key == 3 || on_button(RQ_X + RQ_W - 24 - BTN_W, 20)) break;
             if (key == 0x11 || key == 0x91) {                   /* nyilak : a kijeloles lep (a lista vegen lapoz) */
                 i = key == 0x11 ? cur + 1 : cur - 1;
@@ -1978,15 +2041,6 @@ static void sd_conv(char *d, const unsigned char *s, unsigned char n)
     strcpy(d + h + 1, sd_tmp + i - t);
 }
 
-/* Az SD-fajl, amely nem fer a dokumentum tenyleges helyere (a REU merete szerint), szurke, nem valaszthato.
-   fgr[] : az rq_sizes_ szamolja a pontos bajtmeretbol (PLM : a fajl ; RTF : a fajl + 8 K ; egyeb szoveg : a fajl ketszerese + 8 K,
-   mert az SD-fajl is a REU-ba kerul, mellette a atalakitott szoveg). */
-static unsigned char fgr[MAXFILES];
-static unsigned char fgrey(unsigned char i)
-{
-    return sd_pk && (fgr[i] || fsize[i] == 0xFFFD);
-}
-
 /* A fpage. oldal: names[] / fsize[] (0xFFFF: konyvtar). cap: ennek az indexnek a nyers neve SD_NAME-be, attributuma SD_ATT-be.
    Vissza: 0, ha a konyvtar nem olvashato. */
 static unsigned char sd_scan_(unsigned char cap)
@@ -1994,6 +2048,7 @@ static unsigned char sd_scan_(unsigned char cap)
     unsigned tot = 0, skip = fpage;
     unsigned char r, hf = 0, ab = 0, root;
     nfiles = 0;
+    bhn = bhi = 0;
     fmore = 0;
     r = sd_dirbeg();
     if (r > 1) return 0;                        /* 1 : ures konyvtar (01,DIRECTORY EMPTY) */
@@ -2011,7 +2066,7 @@ static unsigned char sd_scan_(unsigned char cap)
     }
     while (!r && !sd_dirnext()) {
         if (!stricmp((char *)SD_ENT + 1, "ftp")) hf = 1;
-        if (is_bck((char *)SD_ENT + 1)) continue;
+        if (is_bck((char *)SD_ENT + 1)) { bck_note((char *)SD_ENT + 1, 0); continue; }
         if (tot >= skip && nfiles < MAXFILES) {
             io_hide();
             sd_conv(names[nfiles], SD_ENT + 1, 24);
@@ -2182,7 +2237,7 @@ static void rq_list(void)
         break;
     }
     if (sd_pk) { ovl_load(12); rq_sizes_(); }
-    ovl_load(11);
+    ovl_load(12);
     rq_bck_();
     if (sd_pk) disk_busy(0);
 }
@@ -2542,8 +2597,14 @@ static void doc_read(unsigned char *dst, dpos g, unsigned n)
 }
 
 /* Debut du paragraphe contenant la position p : la plus grande position s <= p
-   dont l'octet precedent est un CR (ou 0). A defaut en 8 Ko : p lui-meme. */
-static dpos para_start(dpos p)
+   dont l'octet precedent est un CR (ou 0). A defaut en 8 Ko : p lui-meme.
+   (para_start et style_at sont dans l'overlay 11 ; les versions residentes rechargent l'overlay precedent apres l'appel.) */
+extern unsigned char ovl_cur;
+static dpos para_start(dpos p);
+static unsigned char style_at(dpos p);
+#pragma code-name (push, "OVERLAY11")
+#pragma rodata-name (push, "OVERLAY11")
+static dpos para_start_(dpos p)
 {
     unsigned n, i;
     dpos lim = p > 8192 ? p - 8192 : 0, q = p;
@@ -2555,12 +2616,17 @@ static dpos para_start(dpos p)
     }
     return lim ? p : 0;
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static dpos para_start(dpos p) { dpos r; unsigned char o = ovl_cur; ovl_load(11); r = para_start_(p); if (o) ovl_load(o); return r; }
 
 /* Style en vigueur au debut de la position p : le dernier marqueur avant p.
    Un intervalle [sc_lo1, sc_hi] garde le dernier resultat : sans marqueur entre
    ces bornes le style est le meme. sc_hi redescend a p pour que les
    modifications faites a partir de p ne rendent pas le cache faux. */
-static unsigned char style_at(dpos p)
+#pragma code-name (push, "OVERLAY11")
+#pragma rodata-name (push, "OVERLAY11")
+static unsigned char style_at_(dpos p)
 {
     unsigned n, i;
     dpos q = p, lo = 0;
@@ -2582,6 +2648,9 @@ static unsigned char style_at(dpos p)
     sc_ok = 1;
     return st;
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static unsigned char style_at(dpos p) { unsigned char r, o = ovl_cur; ovl_load(11); r = style_at_(p); if (o) ovl_load(o); return r; }
 
 /* Le texte qui quitte la fenetre ou qu'on y retrouve peut contenir des marqueurs
    nouveaux : first_mark ne doit jamais depasser le premier du document. */
@@ -2635,7 +2704,6 @@ static void pull_tail(void)
 
 /* Les fonctions qui glissent la fenetre sont dans l'overlay 11 ; les versions residentes (stubs) chargent l'overlay,
    appellent, puis rechargent l'overlay precedent : on peut donc les appeler depuis un autre overlay. */
-extern unsigned char ovl_cur;
 #pragma code-name (push, "OVERLAY11")
 #pragma rodata-name (push, "OVERLAY11")
 /* Les L premieres lignes (L >= 1) sortent de la fenetre par le haut, vers le
@@ -4763,6 +4831,15 @@ static void cycle_theme(void)
 #pragma code-name (pop)
 #pragma code-name (push, "OVERLAY12")
 #pragma rodata-name (push, "OVERLAY12")
+/* A bemountolt FTP-szerverek (/ftp/...) mappaiban minden fajlmuvelet halozati korut (0,4-0,8 s) : ott a lista fajlonkenti meretet es .bck-jat nem kerdezzuk le. */
+static unsigned char lp_ftp(void)
+{
+    unsigned char r;
+    io_hide();
+    r = (LPATH[1] | 0x20) == 'f' && (LPATH[2] | 0x20) == 't' && (LPATH[3] | 0x20) == 'p' && (LPATH[4] == '/' || !LPATH[4]);
+    io_show();
+    return r;
+}
 /* Meretkod az SD_SIZE-bol (16 bites szamitassal, a bajtokbol): a felso 2 bit az egyseg (0 K, 1 M, 2 G), az also 14 bit az ertek (<= 999; 999K felett a kovetkezo egyseg). */
 static unsigned size_code(void)
 {
@@ -4807,69 +4884,86 @@ static void pick_frame_(const char *title, unsigned char newbtn)
 #pragma code-name (push, "OVERLAY12")
 #pragma rodata-name (push, "OVERLAY12")
 
+static void size_one(unsigned char r)           /* egy SD-fajl merete es az, hogy befer-e (SD_NAME / SD_PATH az hivo dolga) */
+{
+    io_hide();
+    strcpy(SD_NAME, rawn[r]);
+    io_show();
+    if (!sd_open(1)) {
+        sd_size();
+        fsize[r] = size_code();
+        sd_close();
+        {                                       /* befer-e a REU-ba (suf_end a REU merete a tartalek nelkul) ; RAM-ban (REU nelkul) : MAXDOC */
+            unsigned long n = SD_SIZE, lim = reu_on ? suf_end : (unsigned long)MAXDOC;
+            char *e = strrchr(SD_NAME, '.');
+            fgr[r] = e && !stricmp(e, ".plm") ? n > lim : e && !stricmp(e, ".rtf") ? n + 8192UL > lim : 2 * n + 8192UL > lim;
+        }
+    }
+}
 static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
 {
     unsigned char r, pc;
+    info_i = nfiles;
+    info_clk = 0;
     if (!sd_pk) return;
-    strcpy(sd_tmp, SD_NAME);                    /* a dokumentum sajat neve */
     memset(fgr, 0, MAXFILES);
+    if (lp_ftp()) {                             /* FTP : fajlonkent halozati kerdes (0,5-1 s) : a valaszto hatterben tolti, soronkent (info_step) */
+        for (r = 0; r < nfiles; ++r) if (!fsize[r]) fsize[r] = 0xFFFC;
+        info_i = 0;
+        return;
+    }
+    strcpy(sd_tmp, SD_NAME);                    /* a dokumentum sajat neve */
     pc = PEEK(0xCB00);
     POKE(0xCB00, 0);                             /* a konyvtar mar be van allitva : nincs ujabb chdir */
-    for (r = 0; r < nfiles; ++r) {
-        if (fsize[r]) continue;
-        io_hide();
-        strcpy(SD_NAME, rawn[r]);
-        io_show();
-        if (!sd_open(1)) {
-            sd_size();
-            fsize[r] = size_code();
-            sd_close();
-            {                                   /* befer-e a REU-ba (suf_end a REU merete a tartalek nelkul) ; RAM-ban (REU nelkul) : MAXDOC */
-                unsigned long n = SD_SIZE, lim = reu_on ? suf_end : (unsigned long)MAXDOC;
-                char *e = strrchr(SD_NAME, '.');
-                fgr[r] = e && !stricmp(e, ".plm") ? n > lim : e && !stricmp(e, ".rtf") ? n + 8192UL > lim : 2 * n + 8192UL > lim;
-            }
-        }
-    }
+    for (r = 0; r < nfiles; ++r) if (!fsize[r]) size_one(r);
     POKE(0xCB00, pc);                           /* (SD_PATH[0] = pc : a cc65 itt egy elavult mutatora irt) */
     strcpy(SD_NAME, sd_tmp);
     sd_bad = 0;
 }
+static void info_step_(void)                   /* az FTP-lista kovetkezo sora : meret, szurkites */
+{
+    unsigned char r = info_i++, pc;
+    if (fsize[r] != 0xFFFC) return;
+    strcpy(sd_tmp, SD_NAME);
+    pc = PEEK(0xCB00);
+    POKE(0xCB00, 0);
+    size_one(r);
+    POKE(0xCB00, pc);
+    strcpy(SD_NAME, sd_tmp);
+    sd_bad = 0;
+    clear_cells((unsigned char)(12 + r), 40, 24);
+    draw_size(r);
+    if (fgrey(r)) color_cells((unsigned char)(12 + r), 4, 31, (unsigned char)((dark_tone[theme_no] << 4) | (COL_PAGE & 15)));
+}
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY11")
-#pragma rodata-name (push, "OVERLAY11")
-static void rq_bck_(void)                      /* melyik listabeli fajlnak van .bck-ja (csak a valasztoban) */
+static void info_step(void) { unsigned char o = ovl_cur; ovl_load(12); info_step_(); if (o) ovl_load(o); }     /* a valasztobol hivva : az overlay-t visszatolti */
+#pragma code-name (push, "OVERLAY12")
+#pragma rodata-name (push, "OVERLAY12")
+static void rq_bck_(void)                      /* melyik listabeli fajlnak van .bck-ja (csak a valasztoban) : a beolvasaskor latott .bck-k hash-eibol */
 {
-    unsigned char i, k, n, c, d[4];
-    char *e;
-    unsigned char pc = PEEK(0xCB00);
+    unsigned char i, j, pc = PEEK(0xCB00), ftp;
+    unsigned h;
+    char *e, *nm;
     memset(fbck, 0, MAXFILES);
     if (!pk_btn) return;
+    ftp = sd_pk && lp_ftp();
     if (sd_pk) POKE(0xCB00, 0);                   /* a konyvtar mar be van allitva : nincs ujabb chdir */
     for (i = 0; i < nfiles; ++i) {
-        if (sd_pk) {                            /* SD : megprobaljuk megnyitni a NEV.bck fajlt */
-            if (fsize[i] >= 0xFFFD) continue;
-            io_hide();
-            strcpy(SD_NAME, rawn[i]);
-            io_show();
-            if (strlen(SD_NAME) > 58) continue;
-            e = strrchr(SD_NAME, '.');
-            if (!e) e = SD_NAME + strlen(SD_NAME);
-            strcpy(e, ".bck");
-            if (!sd_open(1)) { sd_close(); fbck[i] = 1; }
-        } else {                                /* lemez : szurt konyvtar ($0:NEV.BCK) : fejlec + talalat + szabad blokkok = 3 sor */
-            strcpy(cmdname, "$0:");
-            io_hide();
-            for (k = 0; k < 12 && names[i][k] && names[i][k] != '.'; ++k) cmdname[3 + k] = names[i][k];
-            io_show();
-            strcpy(cmdname + 3 + k, ".\x42\x43\x4B");
-            if (cbm_open(1, dev, 0, cmdname)) continue;
-            cbm_read(1, d, 2);
-            for (n = 0; cbm_read(1, d, 4) == 4 && d[1]; ++n) do c = 0; while (cbm_read(1, &c, 1) == 1 && c);
-            cbm_close(1);
-            if (n > 2) fbck[i] = 1;
-        }
+        if (sd_pk && fsize[i] >= 0xFFFD) continue;
+        nm = sd_pk ? SD_NAME : cmdname;
+        io_hide();
+        strcpy(nm, sd_pk ? rawn[i] : names[i]);
+        io_show();
+        if (strlen(nm) > 58) continue;
+        h = bck_hash(nm, !sd_pk);
+        for (j = 0; j < bhn; ++j) if (bckh[j] == h) { fbck[i] = 1; break; }
+        if (fbck[i] || !sd_pk || ftp) continue;
+        e = strrchr(nm, '.');
+        if (e && (e[1] | 0x20) >= 'c') continue;      /* az ABC-sorrendes listaban a .bck a fajl elott van (latta a beolvasas) : csak a 'bck'-nal korabbi kiterjesztes (vagy nincs) kell kulon vizsgalat */
+        if (!e) e = nm + strlen(nm);
+        strcpy(e, ".bck");
+        if (!sd_open(1)) { sd_close(); fbck[i] = 1; }
     }
     if (sd_pk) {
         POKE(0xCB00, pc);

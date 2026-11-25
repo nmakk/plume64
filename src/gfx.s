@@ -576,6 +576,63 @@ gp_core:
         sta gp_sp
         rts
 
+; Bemeneti reteszek : a fajlvalaszto hatterbeli (lassu, FTP-s) lepesei alatt a kattintast (a tuz lenyomasa, bit 4) es az egergorgo impulzusait
+; (pontosan 4 = fel, 8 = le a port 1-en, mint a poll_mouse-ban ; a 0x1F zaj kimarad) az IRQ elkapja (CIA1 port 1 : aktiv alacsony), a lepes utan a main.c ujrajatsza.
+; _inp_clk : a lenyomas-elek szama (legfeljebb 3) ; _inp_latch bitek : 0x40 gorgo fel, 0x80 gorgo le. cc65 interruptor : carry torolve = az IRQ lancban a tobbi is lefut.
+        .export _inp_latch, _inp_clk, _inp_hist
+        .interruptor _inp_irq
+        .bss
+_inp_latch: .res 1
+_inp_clk:   .res 1
+inp_prev:   .res 1
+inp_v:      .res 1
+inp_last:   .res 1
+inp_hn:     .res 1
+_inp_hist:  .res 16
+        .code
+_inp_irq:
+        lda $DC01
+        eor #$FF
+        and #$1F
+        sta inp_v
+        cmp inp_last            ; napló (hibakereses) : a port 1 minden valtozasa
+        beq @same
+        sta inp_last
+        ldx inp_hn
+        sta _inp_hist,x
+        inx
+        txa
+        and #$0F
+        sta inp_hn
+@same:  lda inp_v
+        cmp #$1F
+        beq @done               ; zaj
+        tax
+        and #$10
+        tay                     ; Y = a tuz most
+        eor inp_prev
+        and #$10
+        beq @nf                 ; a tuz nem valtozott
+        tya
+        beq @nf                 ; felengedes
+        lda _inp_clk
+        cmp #3
+        bcs @nf
+        inc _inp_clk            ; lenyomas-el
+@nf:    sty inp_prev
+        cpx #4
+        bne @n4
+        lda _inp_latch
+        ora #$40
+        sta _inp_latch
+@n4:    cpx #8
+        bne @done
+        lda _inp_latch
+        ora #$80
+        sta _inp_latch
+@done:  clc
+        rts
+
 ; unsigned gp_adv(unsigned x, unsigned char c, unsigned char st) : x ajuste pour ce caractere.
 _gp_adv:
         sta gp_st
