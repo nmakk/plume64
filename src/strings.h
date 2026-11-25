@@ -95,7 +95,9 @@
 #define S_UNDO       "Undo"
 #define S_LOADING    "Loading..."
 #define S_SAVING     "Saving..."
-#define S_COLORS     "Colors"
+#define S_COLORS     "Themes"
+#define S_RVSON      "RVS on"
+#define S_RVSOFF     "RVS off"
 #define S_SMALL      "Small font"
 #define S_CLICK      "Key click"
 #define S_OVERWR     "Overwrite"
@@ -113,7 +115,7 @@
 #define S_RELOAD1    "Back to disk file."
 #ifdef REU
 #include "../build/build.h"
-#define S_VER        "26b #" BUILD           /* PlumE REU : annee + lettre de la livraison, et l'identifiant du build (git) */
+#define S_VER        "26c #" BUILD           /* PlumE REU : annee + lettre de la livraison, et l'identifiant du build (git) */
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"
@@ -221,7 +223,9 @@
 #define S_UNDO       "Annuler"
 #define S_LOADING    "Chargement..."
 #define S_SAVING     "Enregistrement..."
-#define S_COLORS     "Couleurs"
+#define S_COLORS     "Themes"
+#define S_RVSON      "RVS on"
+#define S_RVSOFF     "RVS off"
 #define S_SMALL      "Petite police"
 #define S_CLICK      "Clic de touche"
 #define S_OVERWR     "" C_EAIGU "crasement"
@@ -238,7 +242,7 @@
 #define S_RELOADB    "Restaurer le .bck"
 #define S_RELOAD1    "Retour au fichier du disque."
 #ifdef REU
-#define S_VER        "26b"
+#define S_VER        "26c"
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"

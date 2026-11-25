@@ -26,6 +26,9 @@ extern unsigned char nl_style;
 unsigned next_line_buf(void);
 extern unsigned nl_base, nl_len;
 extern const unsigned char font_width[];
+extern unsigned char nopad, cur_pad;           /* gfx.s : szin : szoköz-nyujtas ki / a kurzor alatti nyujtas */
+unsigned gp_adv(unsigned x, unsigned char c, unsigned char st);
+void gp_reset(void);
 extern unsigned char fsmall;                    /* 1 : kis betukeszlet (gfx.s) */
 #define small_font fsmall
 #ifdef REU
@@ -61,11 +64,18 @@ void __fastcall__ led_theme(unsigned char t);
 
 /* Le texte contient des marqueurs de style invisibles ($10 + style) aux seuls
    endroits ou le style change : environ 1 octet par caractere. */
-#define IS_MARK(c) (((c) & 0xF8) == 0x10)
+/* Marqueurs (un marqueur = tout l'etat). Etat : bits 0-2 style, 3-5 couleur (CTRL+1..8 : noir, blanc, rouge, cyan, violet,
+   vert, bleu, jaune), bit 6 = il y a une couleur, bit 7 = inverse video (RVS : fond de la couleur, lettre de la couleur du papier ;
+   alors seul le gras est conserve). Codes : 0x10 | style (anciens PLM) ; 0xC0 | couleur << 3 | style ; inverse : voir gfx.s. */
+unsigned char __fastcall__ is_mark(unsigned char c);
+unsigned char __fastcall__ mark_state(unsigned char c);
+unsigned char __fastcall__ mark_of(unsigned char s);
+#define IS_MARK(c) is_mark(c)
+#define MARK(s)    mark_of(s)
+#define STATE(c)   mark_state(c)
 /* Largeur d'un caractere lue directement dans la table de la police
    (un octet par code a partir de 32). Gras : +1 pixel. */
 #define CW(c, st)  ((font_width - 32)[c] + ((st) & BOLD))
-#define MARK(s)    (0x10 | (s))
 
 #define SCREEN    0xE000u
 #define COLORS    ((unsigned char *)0xCC00)
@@ -490,7 +500,7 @@ static unsigned char style_before(unsigned p)
 {
     unsigned i = line_of(p), q;
     unsigned char st = lstyle[i];
-    for (q = lstart[i]; q < p; ++q) if (IS_MARK(text[q])) st = text[q] & 7;
+    for (q = lstart[i]; q < p; ++q) if (IS_MARK(text[q])) st = STATE(text[q]);
     return st;
 }
 
@@ -565,16 +575,30 @@ static unsigned char sel_in_window(void) { return anchor == NOSEL || (agl >= win
 #define anchor_fix()
 #endif
 
+static unsigned char cov[40];                  /* a sor celliban az eddigi legnagyobb betu-atfedes (pont) : a cellat a nagyobb atfedesu betu szinezi */
+static unsigned char sel_rvs, sel_hide;         /* a kijeloles RVS szoveget tartalmaz : villog (sel_hide : a villogas rejtett fele) */
+#ifdef REU
+/* CTRL+1..8 szinei temankent : ami nem latszana a papiron, azt latszo szinre cserelem (feher a feheren vilagosszurke, fekete a fekete alapon sotetszurke ...) */
+static const unsigned char inkc[NTHEMES][8] = {
+    { 0, 15,  2, 3, 4,  5,  6, 7 },     /* fekete a feheren (a sarga az igazi C64-sarga, olivazold) */
+    { 11, 1, 10, 3, 4,  5, 14, 7 },     /* zold a feketen */
+    { 0,  1, 10, 3, 4, 13, 14, 7 },     /* kek */
+    { 11, 1, 10, 3, 4,  5, 14, 7 },     /* sarga a feketen */
+};
+#endif
 static void draw_line(unsigned i)
 {
-    unsigned char row, st, c;
-    unsigned p, end, x = TEXT_X0, lo = sel_lo(), hi = sel_hi(), sx = 0, ex = 0;
+    unsigned char row, st, c, pcell = 0xFF, pweak = 0, psp = 0, pv = 0, ract = 0, rr = 0, f;
+    unsigned p, end, x = TEXT_X0, lo = sel_lo(), hi = sel_hi(), rs = 0;
+#define SELFLUSH(xe) if ((xe) > rs && !(rr && sel_hide)) xor_span(row, rs, (xe))      /* a kijeloles szakaszai : az RVS-es szakasz villog (sel_hide) */
     if (i < top || i >= top + VISIBLE) return;
     row = (unsigned char)(TEXT_ROW0 + i - top);
 #ifdef REU
     draw_off = LINEBUF;
     bm_fill(LINEBUF, 320, 0);
     gbase = LINEBUF;
+    color_cells(row, 1, 38, COL_PAGE);
+    memset(cov, 0, sizeof cov);
 #else
     clear_cells(row, 0, 320);                   /* marges comprises : efface les ombres des menus */
     gbase = ROWBASE(row);
@@ -586,23 +610,45 @@ static void draw_line(unsigned i)
 #endif
     end = lstart[i + 1];
     st = lstyle[i];
+    gp_reset();
+    if (lo < lstart[i] && hi > lstart[i]) { ract = 1; rs = TEXT_X0; rr = (unsigned char)((st & 0x80) != 0); }     /* a kijeloles a sor elott kezdodott */
     for (p = lstart[i]; p < end; ++p) {
-        if (p == lo) sx = x;
-        if (p == hi) ex = x;
+        if (p == hi && ract) { SELFLUSH(x); ract = 0; }
         c = text[p];
-        if (IS_MARK(c)) { st = c & 7; continue; }
-        if (c == CR) { if (p >= lo && p < hi) x += 4; break; }
+        if (IS_MARK(c)) { st = STATE(c); continue; }
+        if (p >= lo && p < hi) {
+            f = (unsigned char)((st & 0x80) != 0);
+            if (!ract) { ract = 1; rs = x; rr = f; }
+            else if (rr != f) { SELFLUSH(x); rs = x; rr = f; }
+            if (f) sel_rvs = 1;
+            if (c == CR) x += 4;
+        }
+        if (c == CR) break;
         gch = c;
-        gstyle = st;
-        gx = x;
+        gstyle = st & 7;
+        gx = gp_adv(x, c, st);
         draw_glyph();
-        x += CW(c, st);
+        x = gx + CW(c, st);
+#ifdef REU
+        if (c != ' ' || (st & 0x80)) {          /* a betu cellainak szine (az utolso betu nyer, de az irasjel nem veszi el a betu cellajat) ; RVS : a szokoz cellai is */
+            unsigned char *cc = COLORS + row * 40, k = (unsigned char)(gx >> 3), e = (unsigned char)((x - 1) >> 3), ink = (st & 0x40) ? inkc[theme_no][(st >> 3) & 7] : (unsigned char)(COL_PAGE >> 4), pap = (unsigned char)(COL_PAGE & 15), v, weak = (unsigned char)(c != ' ' && strchr(".,;:!?'\")-", c) != 0);
+            v = (st & 0x80) ? (unsigned char)((pap << 4) | ink) : (unsigned char)((ink << 4) | pap);
+            if (weak && !pweak && pcell != 0xFF) { if (!psp) v = pv; else if (k == pcell) ++k; }     /* a szo utani irasjel a szo szinet kapja */
+            for (; k <= e; ++k) {               /* a cellat a tobb pontot lefedo betu szinezi (azonos : a kesobbi) */
+                unsigned a = (unsigned)k << 3, b = a + 8, ov;
+                if (gx > a) a = gx;
+                if (x < b) b = x;
+                ov = b - a;
+                if (ov >= cov[k]) { cc[k] = v; cov[k] = (unsigned char)ov; }
+            }
+            pv = v;
+            pcell = e;
+            pweak = weak;
+            psp = (unsigned char)(c == ' ');
+        } else psp = 1;
+#endif
     }
-    if (lo < hi && lo < end && hi > lstart[i]) {
-        if (lo < lstart[i]) sx = TEXT_X0;
-        if (hi >= end || (p < hi && ex == 0)) ex = x;
-        if (ex > sx) xor_span(row, sx, ex);
-    }
+    if (ract) SELFLUSH(x);
 #ifdef REU
 show:
     draw_off = 0;
@@ -634,9 +680,17 @@ static unsigned cursor_x(void)
 {
     unsigned i = line_of(cursor), p, x = 0;
     unsigned char st = lstyle[i], c;
+    gp_reset();
     for (p = lstart[i]; p < cursor; ++p) {
         c = text[p];
-        if (IS_MARK(c)) st = c & 7; else x += CW(c, st);
+        if (IS_MARK(c)) st = STATE(c); else x = gp_adv(x, c, st) + CW(c, st);
+    }
+    cur_pad = 0;                                /* a kurzor alatti betu elotti nyujtas : a kurzor ezt is lefedi */
+    for (; p < doclen; ++p) {
+        c = text[p];
+        if (IS_MARK(c)) { st = STATE(c); continue; }
+        if (c != CR) cur_pad = (unsigned char)(gp_adv(x, c, st) - x);
+        break;
     }
     return x;
 }
@@ -651,7 +705,12 @@ static void scroll_text(unsigned a, int step)
 {
     unsigned char r;
     unsigned b;
-    for (r = VISIBLE - 1; r; --r) { b = a + step; bm_move(a, b, 312); a = b; }
+    for (r = VISIBLE - 1; r; --r) {
+        b = a + step;
+        bm_move(a, b, 312);
+        memmove((unsigned char *)0xCC01 + ((a - SCREEN) >> 3), (unsigned char *)0xCC01 + ((b - SCREEN) >> 3), 38);   /* a szinek is */
+        a = b;
+    }
 }
 #endif
 static void place_cursor(void)
@@ -906,7 +965,7 @@ static const char *const menu_items[NMENUS][MENUW] = {
     { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
 #endif
 #ifdef REU
-    { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, S_COLORS, S_SMALL, 0 },
+    { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, S_RVSON, S_RVSOFF, S_COLORS, S_SMALL, 0 },
 #else
     { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, 0 },
 #endif
@@ -932,15 +991,15 @@ static const char *const menu_keys[NMENUS][MENUW] = {
     { "F6", "F2", "F4", "", "", "F8", 0 },
 #endif
 #ifdef REU
-    { "", "F3", "F5", "F7", "CTRL+<", "", 0 },
+    { "", "F3", "F5", "F7", "CTRL+9", "CTRL+0", "CTRL+<", "", 0 },
 #else
     { "", "F3", "F5", "F7", 0 },
 #endif
     { "", "", "", 0 },
 #ifdef HUN
-    { "", "C=+SPACE", "CTRL+9", "SHIFT+DEL", "RUN/STOP", 0 },
+    { "", "C=+SPACE", "", "SHIFT+DEL", "RUN/STOP", 0 },
 #elif defined(REU)
-    { "", "CTRL+9", "RUN/STOP", 0 },
+    { "", "", "RUN/STOP", 0 },
 #else
     { "", 0 },
 #endif
@@ -970,7 +1029,7 @@ static void draw_menubar(void)
 #endif
 }
 
-static void page_colors(void)
+static void page_colors(unsigned char text)       /* text = 0 : a szovegsorok szinei maradnak (a menu bezarasa csak a takart sorokat rajzolja ujra) */
 {
     unsigned char r;
 #ifdef REU
@@ -983,7 +1042,7 @@ static void page_colors(void)
     color_cells(FOOT_ROW, 0, 40, COL_BAR);
     for (r = TEXT_ROW0; r < FOOT_ROW; ++r) {
         color_cells(r, 0, 1, COL_MARGIN);
-        color_cells(r, 1, 38, COL_PAGE);
+        if (text) color_cells(r, 1, 38, COL_PAGE);
 #ifdef REU
         color_cells(r, 39, 1, (unsigned char)((dark_tone[theme_no] << 4) | (COL_BAR & 15)));   /* gorgetosav : hatterszinu palya, sotet csuszka */
 #else
@@ -995,7 +1054,7 @@ static void page_colors(void)
 static void redraw_all(void)
 {
     shown_dirty = 255;
-    page_colors();
+    page_colors(1);
     draw_menubar();
     draw_status();
     draw_text_area();
@@ -1912,11 +1971,13 @@ static void sd_conv(char *d, const unsigned char *s, unsigned char n)
     strcpy(d + h + 1, sd_tmp + i - t);
 }
 
-/* A 15 M-nel nagyobb SD-fajl nem fer a dokumentumba: szurke, nem valaszthato. */
+/* Az SD-fajl, amely nem fer a dokumentum tenyleges helyere (a REU merete szerint), szurke, nem valaszthato.
+   fgr[] : az rq_sizes_ szamolja a pontos bajtmeretbol (PLM : a fajl ; RTF : a fajl + 8 K ; egyeb szoveg : a fajl ketszerese + 8 K,
+   mert az SD-fajl is a REU-ba kerul, mellette a atalakitott szoveg). */
+static unsigned char fgr[MAXFILES];
 static unsigned char fgrey(unsigned char i)
 {
-    unsigned f = fsize[i];
-    return sd_pk && f != 0xFFFF && ((f >> 14) >= 2 || ((f >> 14) == 1 && (f & 0x3FFF) > 15));
+    return sd_pk && (fgr[i] || fsize[i] == 0xFFFD);
 }
 
 /* A fpage. oldal: names[] / fsize[] (0xFFFF: konyvtar). cap: ennek az indexnek a nyers neve SD_NAME-be, attributuma SD_ATT-be.
@@ -2113,8 +2174,8 @@ static void rq_list(void)
         }
         break;
     }
-    if (sd_pk) { ovl_load(4); rq_sizes_(); }
-    ovl_load(1);
+    if (sd_pk) { ovl_load(12); rq_sizes_(); }
+    ovl_load(11);
     rq_bck_();
     if (sd_pk) disk_busy(0);
 }
@@ -2504,7 +2565,7 @@ static unsigned char style_at(dpos p)
         n = q > 256 ? 256 : (unsigned)q;
         doc_read(fbuf, q - n, n);
         for (i = n; i; --i) {
-            if (IS_MARK(fbuf[i - 1])) { st = fbuf[i - 1] & 7; lo = q - n + i; q = n; break; }
+            if (IS_MARK(fbuf[i - 1])) { st = STATE(fbuf[i - 1]); lo = q - n + i; q = n; break; }
         }
         q -= n;
     }
@@ -2565,6 +2626,11 @@ static void pull_tail(void)
     trim_lines();
 }
 
+/* Les fonctions qui glissent la fenetre sont dans l'overlay 11 ; les versions residentes (stubs) chargent l'overlay,
+   appellent, puis rechargent l'overlay precedent : on peut donc les appeler depuis un autre overlay. */
+extern unsigned char ovl_cur;
+#pragma code-name (push, "OVERLAY11")
+#pragma rodata-name (push, "OVERLAY11")
 /* Les L premieres lignes (L >= 1) sortent de la fenetre par le haut, vers le
    REU. Le curseur reste a l'ecran : il est au moins 25 lignes plus bas. */
 static void drop_head(unsigned L)
@@ -2586,7 +2652,7 @@ static void drop_head(unsigned L)
 }
 
 /* Vers la fin du document : le haut sort, la suite du suffixe entre. */
-static void slide_fwd(void)
+static void slide_fwd_(void)
 {
     unsigned L, i = nlines - 1, lim = top > 3 ? top - 3 : 0;      /* on ne touche pas aux lignes de l'ecran (3 lignes de marge : une fenetre petite ne doit pas se bloquer) */
     for (L = 1; L < nlines && lstart[L] < STEP; ++L) ;
@@ -2600,7 +2666,7 @@ static void slide_fwd(void)
 /* Vers le debut : le morceau qui precede la fenetre, a partir d'un debut de
    paragraphe, revient, et le bas sort si la place manque. Si le texte qui suit
    a change depuis, la mise en page de toute la fenetre en tient compte. */
-static void slide_back(void)
+static void slide_back_(void)
 {
     unsigned len, T = nlines, ts, nP;
     unsigned char all, st;
@@ -2635,7 +2701,7 @@ static void slide_back(void)
 
 /* La fenetre repart de B (debut de paragraphe) : tout le reste est range dans
    le REU, le trou entre le debut et le suffixe se deplace jusqu'a B. */
-static void relocate(dpos B)
+static void relocate_(dpos B)
 {
     dpos d;
     unsigned k;
@@ -2671,6 +2737,11 @@ static void relocate(dpos B)
     layout_all();
     pull_tail();
 }
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void slide_fwd(void) { unsigned char o = ovl_cur; ovl_load(11); slide_fwd_(); if (o) ovl_load(o); }
+static void slide_back(void) { unsigned char o = ovl_cur; ovl_load(11); slide_back_(); if (o) ovl_load(o); }
+static void relocate(dpos B) { unsigned char o = ovl_cur; ovl_load(11); relocate_(B); if (o) ovl_load(o); }
 
 #ifdef REUTEST
 static unsigned char checks, fails;
@@ -3082,10 +3153,10 @@ static void print_graphics(void)
         x = PRINT_LEFT;
         for (q = p; q < n; ++q) {
             c = text[q];
-            if (IS_MARK(c)) { st = c & 7; continue; }
+            if (IS_MARK(c)) { st = STATE(c); continue; }
             if (c == CR) continue;
             gch = c;
-            gstyle = st;
+            gstyle = st & 7;
             gx = x;
             draw_glyph();
             x += CW(c, st);
@@ -3202,7 +3273,7 @@ static void print_doc(unsigned char mode)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 #ifdef REU
-static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }      /* a nyomtatas az aktualis betukeszlettel tordel es rajzol */
+static void print_run(unsigned char mode) { nopad = 1; ovl_load(2); print_doc(mode); nopad = 0; }      /* a nyomtatas az aktualis betukeszlettel tordel es rajzol, szoveg-nyujtas nelkul */
 #else
 static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }
 #endif
@@ -3221,6 +3292,7 @@ static void set_selection(unsigned new_anchor, unsigned new_cursor)
 #endif
     anchor = new_anchor;
     cursor = new_cursor;
+    sel_hide = 0;
     if (sel_lo() < a) a = sel_lo();
     if (sel_hi() > b) b = sel_hi();
     la = line_of(a);
@@ -3501,7 +3573,7 @@ static void paste(void)
     p = cursor;
     here = style_before(p);
     io_hide();
-    for (k = 0; k < cliplen; ++k) { c = CLIP[k]; if (IS_MARK(c)) last = c & 7; }
+    for (k = 0; k < cliplen; ++k) { c = CLIP[k]; if (IS_MARK(c)) last = STATE(c); }
     io_show();
     /* le marqueur de depart est inutile s'il repete le style du point d'insertion */
     k = 0;
@@ -3524,9 +3596,9 @@ static void paste(void)
    La selection et la suite du texte sont deplacees en haut du tampon, puis la
    selection est reecrite en un seul passage avec ses nouveaux marqueurs. */
 #ifdef REU
-/* apply_style est dans l'overlay 8 (il libere de la RAM) ; la version residente le charge d'abord. */
-#pragma code-name (push, "OVERLAY8")
-#pragma rodata-name (push, "OVERLAY8")
+/* apply_style est dans l'overlay 12 (il libere de la RAM) ; la version residente le charge d'abord. */
+#pragma code-name (push, "OVERLAY12")
+#pragma rodata-name (push, "OVERLAY12")
 #define APPLY_STYLE apply_style_ov
 #else
 #define APPLY_STYLE apply_style
@@ -3535,9 +3607,13 @@ static void APPLY_STYLE(unsigned char bit)
 {
     unsigned a, b, w, sel_end, need = 0;
     unsigned char all, every = 1, old_st, start_st, emitted, want, c, k, one = 0;
-    unsigned char map[8];                       /* ancien style -> nouveau style */
     unsigned char *q, *end, *rd;
+    unsigned char rvs_off = (bit == 0x20), col, cval;
     unsigned first;
+    if (rvs_off) bit = 0x80;                    /* RVS ki : 0x20, RVS be : 0x80 (sosem kapcsol) */
+    col = bit & 0x40;
+    cval = (unsigned char)(0x40 | ((bit & 7) << 3));     /* szin : 0x40 | 0..7 ; allapot-bitek : 0x40 | szin << 3 ; RVS : 0x80 */
+#define NEWST(o) (col ? (unsigned char)(((o) & 0x87) | (every ? 0 : cval)) : !bit ? 0 : every ? (unsigned char)((o) & ~bit) : (unsigned char)((o) | bit))
     if (!has_selection()) {
         if (bit) {                              /* kijeloles nelkul : a kurzor alatti karakter (ha nincs, az elotte levo) valt */
             a = cursor;
@@ -3550,7 +3626,8 @@ static void APPLY_STYLE(unsigned char bit)
             }
         }
         if (!one) {
-            if (bit) style ^= bit; else style = 0;
+            if (col) style = (unsigned char)((style & 0x87) | ((style & 0x78) == cval ? 0 : cval)); else if (bit == 0x80) style = rvs_off ? (unsigned char)(style & 0x7F) : (unsigned char)(style | 0x80); else if (bit) style ^= bit; else style = 0;
+            if (style & 0x80) style &= ~6;
             draw_status();
             return;
         }
@@ -3565,15 +3642,16 @@ static void APPLY_STYLE(unsigned char bit)
     end = &text[b];
     for (q = &text[a]; q < end; ++q) {
         c = *q;
-        if (IS_MARK(c)) old_st = c & 7; else if (!(old_st & bit)) { every = 0; break; }
+        if (IS_MARK(c)) old_st = STATE(c); else if (!(col ? (old_st & 0x78) == cval : old_st & bit)) { every = 0; break; }
     }
-    for (k = 0; k < 8; ++k) map[k] = !bit ? 0 : every ? (unsigned char)(k & ~bit) : (unsigned char)(k | bit);
+    if (bit == 0x80) every = rvs_off;           /* RVS be : sosem veszi le ; RVS ki : mindig leveszi */
     /* marqueurs a ajouter, pour verifier la place avant de toucher au texte */
     emitted = old_st = start_st;
     for (q = &text[a]; q < end; ++q) {
         c = *q;
-        if (IS_MARK(c)) { old_st = c & 7; continue; }
-        want = map[old_st];
+        if (IS_MARK(c)) { old_st = STATE(c); continue; }
+        want = NEWST(old_st);
+        if (want & 0x80) want &= ~6;               /* inverz : csak a felkover marad */
         if (want != emitted) { ++need; emitted = want; }
     }
     if (doclen + need + 1 > MAXDOC) { message(S_FULL, 0, 0, 0); return; }
@@ -3588,8 +3666,9 @@ static void APPLY_STYLE(unsigned char bit)
     emitted = old_st = start_st;
     for (; rd < end; ++rd) {
         c = *rd;
-        if (IS_MARK(c)) { old_st = c & 7; continue; }
-        want = map[old_st];
+        if (IS_MARK(c)) { old_st = STATE(c); continue; }
+        want = NEWST(old_st);
+        if (want & 0x80) want &= ~6;
         if (want != emitted) { *q++ = MARK(want); emitted = want; }
         *q++ = c;
     }
@@ -3618,7 +3697,7 @@ static void APPLY_STYLE(unsigned char bit)
 #ifdef REU
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void apply_style(unsigned char bit) { ovl_load(8); apply_style_ov(bit); }
+static void apply_style(unsigned char bit) { ovl_load(12); apply_style_ov(bit); }
 #endif
 
 /* La recherche est dans l'overlay 2 (avec l'impression). */
@@ -3716,6 +3795,10 @@ static void find_dialog(void)
 }
 
 #ifdef RTF
+/* A CTRL+1..8 szinek RGB erteke (az RTF szintablajahoz es a legkozelebbi szin keresesehez) : fekete, feher, piros, cian, lila, zold, kek, sarga */
+static const unsigned char rpal[8][3] = {
+    {0, 0, 0}, {255, 255, 255}, {104, 55, 43}, {112, 164, 178}, {111, 61, 134}, {88, 141, 67}, {53, 40, 121}, {184, 199, 111}
+};
 /* ------------------------------------------------------------------ */
 /* RTF : lecture en flux (nouveau document) et ecriture                */
 /* Tout ce bloc (code et constantes) est dans l'overlay 1. */
@@ -3747,7 +3830,8 @@ static unsigned char rtf_code(unsigned u)
 
 static unsigned char rcur, remit, rdepth, rfirst, rst, rlen, rneg, rhas, rhex, rskip, ruc, rfull;
 static unsigned rnum, rcp;                      /* rcp : \ansicpg (1250 : a Windows-1250 ekezetes betui, ő ű) */
-static unsigned char rstack[24], rword[8];
+static unsigned char rstack[24], rstack2[24], rword[8];
+static unsigned char rcol, rhl, rctbl, rcn, rseen, rctab[32], rrgb[3];     /* szin (0 nincs, 1..8 : rpal+1), kiemeles, szintabla */
 
 static void r_flush(void)
 {
@@ -3769,10 +3853,12 @@ static void r_emit(unsigned char c)
    groupes de destination, insere les marqueurs de style. */
 static void r_put(unsigned char c)
 {
+    unsigned char w;
     if (rskip) { --rskip; return; }
     if (rcur & 8) return;
-    if ((rcur & 7) != remit) {
-        remit = rcur & 7;
+    w = rhl ? (unsigned char)(0xC0 | (rcur & 1) | ((rhl - 1) << 3)) : (unsigned char)((rcur & 7) | (rcol ? 0x40 | ((rcol - 1) << 3) : 0));     /* kiemeles = RVS a kiemeles szinevel */
+    if (w != remit) {
+        remit = w;
         if (win_base + doclen < first_mark) first_mark = win_base + doclen;
         r_emit(MARK(remit));
     }
@@ -3808,14 +3894,19 @@ static void r_word(void)
         rfirst = 0;
         for (; *k; k = e + 1) {
             e = strchr(k, ' ');
-            if (!strncmp(w, k, (unsigned)(e - k))) { rcur |= 8; return; }
+            if (!strncmp(w, k, (unsigned)(e - k))) { rcur |= 8; if (*k == 'c') { rctbl = rdepth; rcn = 0; rseen = 0; rrgb[0] = rrgb[1] = rrgb[2] = 0; } return; }
         }
     }
     if (!strcmp(w, "b")) r_style(BOLD);
     else if (!strcmp(w, "i")) r_style(ITALIC);
     else if (!strcmp(w, "ul")) r_style(UNDERLINE);
     else if (!strcmp(w, "ulnone")) rcur &= ~UNDERLINE;
-    else if (!strcmp(w, "plain")) rcur &= 8;
+    else if (!strcmp(w, "plain")) { rcur &= 8; rcol = rhl = 0; }
+    else if (!strcmp(w, "cf")) rcol = rnum < rcn ? rctab[rnum] : 0;
+    else if (!strcmp(w, "cb") || !strcmp(w, "highlig")) rhl = rnum < rcn ? rctab[rnum] : 0;
+    else if (!strcmp(w, "red")) { rrgb[0] = (unsigned char)rnum; rseen = 1; }
+    else if (!strcmp(w, "green")) { rrgb[1] = (unsigned char)rnum; rseen = 1; }
+    else if (!strcmp(w, "blue")) { rrgb[2] = (unsigned char)rnum; rseen = 1; }
     else if (!strcmp(w, "par") || !strcmp(w, "line")) r_put(CR);
     else if (!strcmp(w, "tab")) r_tab();
     else if (!strcmp(w, "u")) { r_uni(rneg ? 0 - rnum : rnum); rskip = ruc; }
@@ -3828,6 +3919,24 @@ static void r_word(void)
     else if (!strcmp(w, "rquote")) r_uni(0x2019);
     else if (!strcmp(w, "ldblquo")) r_uni(0x201C);               /* a szo 7 beture vagott (rword[8]) */
     else if (!strcmp(w, "rdblquo")) r_uni(0x201D);
+}
+
+/* A szintabla egy bejegyzese (egy ';'-ig) : a legkozelebbi CTRL+1..8 szin (0 : automatikus) */
+static void r_ctab(void)
+{
+    unsigned char k, j, best = 0;
+    unsigned d, bd = 0xFFFF;
+    int e;
+    if (rseen) {
+        for (k = 0; k < 8; ++k) {
+            d = 0;
+            for (j = 0; j < 3; ++j) { e = (rrgb[j] >> 1) - (rpal[k][j] >> 1); d += e * e; }
+            if (d < bd) { bd = d; best = (unsigned char)(k + 1); }
+        }
+    }
+    if (rcn < sizeof rctab) rctab[rcn++] = best;
+    rseen = 0;
+    rrgb[0] = rrgb[1] = rrgb[2] = 0;
 }
 
 static unsigned char r_hex(unsigned char c)
@@ -3866,8 +3975,9 @@ static void r_byte(unsigned char c)
     switch (rst) {
     case 0:
         if (c == '\\') rst = 1;
-        else if (c == '{') { if (rdepth < sizeof rstack) rstack[rdepth++] = rcur; rfirst = 1; }
-        else if (c == '}') { if (rdepth) rcur = rstack[--rdepth]; rfirst = 0; }
+        else if (c == '{') { if (rdepth < sizeof rstack) { rstack2[rdepth] = rcol | (rhl << 4); rstack[rdepth++] = rcur; } rfirst = 1; }
+        else if (c == '}') { if (rdepth) { rcur = rstack[--rdepth]; rcol = rstack2[rdepth] & 15; rhl = rstack2[rdepth] >> 4; if (rdepth < rctbl) rctbl = 0; } rfirst = 0; }
+        else if (c == ';' && rctbl) r_ctab();
         else if (c >= 32) { rfirst = 0; if (c < 128) r_put(c); else r_uni(cp1252_hi[c & 31]); }
         break;
     case 1:
@@ -3960,7 +4070,7 @@ static void load_rtf_a(void)
     win_style = sc_ok = doclen = 0;
     first_mark = 0xFFFFFFFFUL;
     pg_begin(S_LOADING, (dpos)blk_old << 8);
-    rcur = remit = rdepth = rfirst = rst = rskip = rfull = rhex = rneg = 0;
+    rcur = remit = rdepth = rfirst = rst = rskip = rfull = rhex = rneg = rcol = rhl = rctbl = rcn = rseen = 0;
     ruc = 1;
     rcp = 0;
     rl_ok = rl_first = rl_go = 1;
@@ -4033,12 +4143,24 @@ static void rtf_put(unsigned n)
 static void rtf_body(void)
 {
     unsigned char *wbuf = outbuf + 400;          /* entree : 64 octets en fin de outbuf, sortie en debut */
-    unsigned char *o, c, i, ws = 0, ns;
+    unsigned char *o, c, i, ws = 0, ns, cf, hl, wcf = 0, whl = 0;
     unsigned u;
     dpos g, tot;
     unsigned k;
     o = outbuf;
-    if (!rtf_txt) o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0\\fs24 ");
+    if (!rtf_txt) {
+        o = w_str(outbuf, "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Times New Roman;}}{\\colortbl;");
+        for (i = 0; i < 8; ++i) {
+            o = w_str(o, "\\red");
+            o = (unsigned char *)utoa_simple((char *)o, rpal[i][0]);
+            o = w_str(o, "\\green");
+            o = (unsigned char *)utoa_simple((char *)o, rpal[i][1]);
+            o = w_str(o, "\\blue");
+            o = (unsigned char *)utoa_simple((char *)o, rpal[i][2]);
+            *o++ = ';';
+        }
+        o = w_str(o, "}\\f0\\fs24 ");
+    }
     tot = doc_total();
     for (g = 0; g < tot; g += k) {
         k = tot - g > 64 ? 64 : (unsigned)(tot - g);
@@ -4048,11 +4170,15 @@ static void rtf_body(void)
             if (o > outbuf + 300) { rtf_put((unsigned)(o - outbuf)); o = outbuf; }
             if (IS_MARK(c)) {
                 if (rtf_txt) continue;
-                ns = c & 7;
+                ns = STATE(c);
                 if (ns == ws) continue;
                 if ((ns ^ ws) & BOLD) o = w_str(o, ns & BOLD ? "\\b" : "\\b0");
                 if ((ns ^ ws) & ITALIC) o = w_str(o, ns & ITALIC ? "\\i" : "\\i0");
                 if ((ns ^ ws) & UNDERLINE) o = w_str(o, ns & UNDERLINE ? "\\ul" : "\\ulnone");
+                cf = (ns & 0x80) ? 2 : (ns & 0x40) ? (unsigned char)(((ns >> 3) & 7) + 1) : 0;                 /* RVS : feher betu, a szin a kiemeles */
+                hl = (ns & 0x80) ? ((ns & 0x40) ? (unsigned char)(((ns >> 3) & 7) + 1) : 1) : 0;
+                if (cf != wcf) { o = w_str(o, "\\cf"); o = (unsigned char *)utoa_simple((char *)o, cf); wcf = cf; }
+                if (hl != whl) { o = w_str(o, "\\highlight"); o = (unsigned char *)utoa_simple((char *)o, hl); whl = hl; }
                 *o++ = ' ';
                 ws = ns;
             } else if (c == CR) {
@@ -4628,8 +4754,8 @@ static void cycle_theme(void)
 /* ---- A fajlvalaszto jovahagyasi es meret-lepesei (9. overlay) ---- */
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY4")
-#pragma rodata-name (push, "OVERLAY4")
+#pragma code-name (push, "OVERLAY12")
+#pragma rodata-name (push, "OVERLAY12")
 /* Meretkod az SD_SIZE-bol (16 bites szamitassal, a bajtokbol): a felso 2 bit az egyseg (0 K, 1 M, 2 G), az also 14 bit az ertek (<= 999; 999K felett a kovetkezo egyseg). */
 static unsigned size_code(void)
 {
@@ -4671,14 +4797,15 @@ static void pick_frame_(const char *title, unsigned char newbtn)
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY4")
-#pragma rodata-name (push, "OVERLAY4")
+#pragma code-name (push, "OVERLAY12")
+#pragma rodata-name (push, "OVERLAY12")
 
 static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az UCI a lista olvasasa utan szabad) */
 {
     unsigned char r, pc;
     if (!sd_pk) return;
     strcpy(sd_tmp, SD_NAME);                    /* a dokumentum sajat neve */
+    memset(fgr, 0, MAXFILES);
     pc = PEEK(0xCB00);
     POKE(0xCB00, 0);                             /* a konyvtar mar be van allitva : nincs ujabb chdir */
     for (r = 0; r < nfiles; ++r) {
@@ -4690,6 +4817,11 @@ static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az
             sd_size();
             fsize[r] = size_code();
             sd_close();
+            {                                   /* befer-e a REU-ba (suf_end a REU merete a tartalek nelkul) ; RAM-ban (REU nelkul) : MAXDOC */
+                unsigned long n = SD_SIZE, lim = reu_on ? suf_end : (unsigned long)MAXDOC;
+                char *e = strrchr(SD_NAME, '.');
+                fgr[r] = e && !stricmp(e, ".plm") ? n > lim : e && !stricmp(e, ".rtf") ? n + 8192UL > lim : 2 * n + 8192UL > lim;
+            }
         }
     }
     POKE(0xCB00, pc);                           /* (SD_PATH[0] = pc : a cc65 itt egy elavult mutatora irt) */
@@ -4698,8 +4830,8 @@ static void rq_sizes_(void)                    /* a LATHATO SD-fajlok merete (az
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY1")
-#pragma rodata-name (push, "OVERLAY1")
+#pragma code-name (push, "OVERLAY11")
+#pragma rodata-name (push, "OVERLAY11")
 static void rq_bck_(void)                      /* melyik listabeli fajlnak van .bck-ja (csak a valasztoban) */
 {
     unsigned char i, k, n, c, d[4];
@@ -4986,7 +5118,7 @@ static unsigned char run_menu_(unsigned char m)
             put_text(x0 + 4, row, "*", 0);
         }
 #ifdef REU
-        if (m == 2 && i == 5 && small_font) put_text(x0 + 4, row, "*", 0);
+        if (m == 2 && i == 7 && small_font) put_text(x0 + 4, row, "*", 0);
 #endif
 #ifdef HUN
         if (m == 4 && ((i == 2 && sound_on) || (i == 3 && overwrite) || i == 4)) put_text(x0 + 4, row, "*", 0);      /* i == 4 : a menu be van kapcsolva */
@@ -5019,7 +5151,7 @@ static unsigned char run_menu_(unsigned char m)
     }
     /* ne redessine que ce que le menu cachait */
     shown_dirty = 255;
-    page_colors();
+    page_colors(0);
     draw_menubar();
     draw_status();
     draw_lines(top, top + n + 2);
@@ -5108,8 +5240,10 @@ static void do_menu(unsigned char m, unsigned char item)
         break;
     case 2:
 #ifdef REU
-        if (item == 4) { cycle_theme(); break; }
-        if (item == 5) { set_small(!small_font); break; }
+        if (item == 4) { apply_style(0x80); break; }
+        if (item == 5) { apply_style(0x20); break; }
+        if (item == 6) { cycle_theme(); break; }
+        if (item == 7) { set_small(!small_font); break; }
 #endif
         apply_style(item ? (unsigned char)(1 << (item - 1)) : 0);
         break;
@@ -5140,16 +5274,18 @@ static void do_menu(unsigned char m, unsigned char item)
 
 static unsigned pos_at(unsigned i, unsigned x)
 {
-    unsigned p = lstart[i], end = lstart[i + 1], px = 0;
+    unsigned p = lstart[i], end = lstart[i + 1], px = 0, q;
     unsigned char w, st = lstyle[i], c;
+    gp_reset();
     if (i + 1 >= nlines) end = doclen;
     while (p < end) {
         c = text[p];
-        if (IS_MARK(c)) { st = c & 7; ++p; continue; }
+        if (IS_MARK(c)) { st = STATE(c); ++p; continue; }
         if (c == CR) break;
         w = CW(c, st);
-        if (px + w / 2 >= x) break;
-        px += w;
+        q = gp_adv(px, c, st);
+        if (q + w / 2 >= x) break;
+        px = q + w;
         ++p;
     }
     if (p == end && end < doclen && p > lstart[i] && text[p - 1] == ' ') --p;
@@ -5308,7 +5444,8 @@ static unsigned char hu_key(void)
 static const unsigned char cbm_keys[]   = { 0xB1, 0xB2, 0xA3, 0xB0, 0xAB, 0xBC, 0xB8, 0xB7, 0xB9, 0xA2, 0xA1, 0xB6, 0xAF };
 static const unsigned char cbm_accent[] = { 132,  133,  134,  128,  129,  131,  140,  141,  138,  136,  137,  135,  156 };
 #endif
-static const unsigned char ctrl_pun[8] = { 0x90, 0x05, 0x1C, 0x9F, 0x9C, 0x1E, 0x1F, 0x9E };   /* CTRL + 1 ... 8 : a KERNAL szinkodjai */
+static const unsigned char col_keys[8] = { 0x90, 0x05, 0x1C, 0x9F, 0x9C, 0x1E, 0x1F, 0x9E };   /* CTRL + 1 ... 8 : a KERNAL szinkodjai (fekete = alapszin, feher, piros, cian, lila, zold, kek, sarga) */
+static const unsigned char ctrl_pun[8] = { 0x81, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B };   /* C= + 1 ... 8 */
 static unsigned char translate(unsigned char k)
 {
     unsigned char j;
@@ -5521,7 +5658,8 @@ static void handle_key(unsigned char k)
     case 0x1A: undo(); break;
     case 0x19: redo(); break;                           /* CTRL+Z, RESTORE : annuler */
 #endif
-    case 0x12: sound_on ^= 1; key_click(); return;      /* CTRL+9 : clic de touche oui / non */
+    case 0x12: apply_style(0x80); return;               /* CTRL+9 : RVS ON (inverz) */
+    case 0x92: apply_style(0x20); return;               /* CTRL+0 : RVS OFF */
 #ifdef REUTEST
     case 0x8D: print_run(1); return;
     case 0xA0: load_named(); redraw_all(); return;        /* le nom est dans filename (outil de test) */
@@ -5538,6 +5676,7 @@ static void handle_key(unsigned char k)
     case 0x05: { unsigned char i; clear_selection(); for (i = 0; i < 100; ++i) move_vertical(-1); break; }
 #endif
     default:
+        for (c = 0; c < 8; ++c) if (k == col_keys[c]) { apply_style(0x40 | c); return; }
         c = translate(k);
         if (c) { key_click(); insert_char(c); }
         return;
@@ -5609,8 +5748,8 @@ static void sbar_goto(unsigned y) { ovl_load(8); sbar_goto_(y); }
    suit quand la souris s'arrete un instant (6 images) et au relachement. */
 /* Un oldal : le curseur et l'ecran avancent (ou reculent) de VISIBLE - 1 lignes, en deux temps pour
    que la fenetre ait le temps de glisser. */
-#pragma code-name (push, "OVERLAY6")
-#pragma rodata-name (push, "OVERLAY6")
+#pragma code-name (push, "OVERLAY12")
+#pragma rodata-name (push, "OVERLAY12")
 static void page_step_(unsigned char down)
 {
     unsigned char part, guard;
@@ -5642,7 +5781,7 @@ static void page_step_(unsigned char down)
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-static void page_step(unsigned char down) { ovl_load(6); page_step_(down); }
+static void page_step(unsigned char down) { ovl_load(12); page_step_(down); }
 
 /* A gorgetosav csuszkaja lenyomva fekete (a kek temaban sotetkek, mert ott alapbol fekete). */
 #ifdef REU
@@ -5965,5 +6104,12 @@ void main(void)
         if (ix_go && kb_idle < 85) ix_tick();   /* szunetben: hatter-indexeles */
 #endif
         blink_cursor();
+#ifdef REU
+        if (!has_selection()) sel_rvs = sel_hide = 0;
+        else if (sel_rvs && ((PEEK(0xA2) & 0x20) != 0) != sel_hide) {      /* RVS szoveget tartalmazo kijeloles : a kurzorral azonos sebessegu villogas */
+            sel_hide = (PEEK(0xA2) & 0x20) != 0;
+            draw_lines(line_of(sel_lo()), line_of(sel_hi()));
+        }
+#endif
     }
 }

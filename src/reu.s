@@ -226,12 +226,13 @@ fnt_end:
 ; chargeur dans le tampon cassette, car ROML ($8000) n'est visible qu'avec la cartouche active.
 ; void __fastcall__ ovl_load(unsigned char n)
         .import __OVERLAYSTART__, __OVERLAYSIZE__
-        .export _ovl_load
+        .export _ovl_load, _ovl_cur
 OVL_BANK0 = 48
 OVL_TMP   = $03BA
 
         .bss
-ovl_cur: .res 1                 ; overlay present (0 : aucun)
+_ovl_cur: .res 1                ; overlay present (0 : aucun)
+ovl_cur = _ovl_cur
         .code
 _ovl_load:
         cmp ovl_cur
@@ -239,7 +240,10 @@ _ovl_load:
         sta ovl_cur
         clc
         adc #OVL_BANK0
-        ldx #ovl_end - ovl - 1
+        cmp #OVL_BANK0 + 11     ; les overlays 11... sont dans les banques 40... (49-58 : 1-10)
+        bcc :+
+        sbc #19
+:       ldx #ovl_end - ovl - 1
         pha                     ; banque
 @i:     lda ovl_img,x
         sta $0334,x

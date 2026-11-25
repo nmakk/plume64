@@ -38,20 +38,20 @@ hun_ctrl:
         .byte $1C, $17, $01, $9F, $1A, $13, $05, $FF
         .byte $9C, $12, $04, $1E, $03, $06, $14, $18
         .byte $1F, $19, $07, $9E, $02, $08, $15, $16
-        .byte $12, $09, $0A, $FF, $0D, $0B, $0F, $0E
+        .byte $12, $09, $0A, $92, $0D, $0B, $0F, $0E
         .byte $FF, $10, $0C, $FF, $FF, $1B, $00, $FF
         .byte $FF, $FF, $1D, $FF, $FF, $1F, $1E, $FF
         .byte $90, $06, $FF, $05, $FF, $FF, $11, $FF
         .byte $FF
 hun_cs:
         .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $96, $FF, $FF, $97, $FF, $FF, $FF, $FF
+        .byte $98, $FF, $FF, $99, $FF, $FF, $FF, $FF
+        .byte $9A, $FF, $FF, $9B, $FF, $FF, $FF, $FF
         .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
         .byte $FF, $FF, $FF, $DC, $FF, $5B, $FF, $FF
         .byte $FF, $FF, $5D, $FF, $FF, $FF, $FF, $FF
-        .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+        .byte $81, $FF, $FF, $95, $FF, $FF, $FF, $FF
         .byte $FF
 c64_shift:
         .byte $FB, $8D, $9D, $8C, $89, $8A, $8B, $91

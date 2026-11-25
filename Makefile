@@ -1,6 +1,6 @@
 # Plume : traitement de texte graphique pour Commodore 64.
 # make -> build/plume-fr.crt, plume-en.crt, plume-dk.crt et plume-hu.crt (et les .prg)
-# L'edition REU (PlumE REU 26b, enhanced) donne build/plumereu-XX-26b.crt
+# L'edition REU (PlumE REU 26c, enhanced) donne build/plumereu-XX-26c.crt
 # dk : menus anglais, clavier danois (æ ø å sur : ; @)
 # hu : menus anglais, clavier hongrois (á é í ó ö ő ú ü ű sous C=)
 LANGS := fr en dk hu
@@ -14,7 +14,7 @@ build/build.h: FORCE
 	@mkdir -p build
 	@id=$$(git rev-parse --short HEAD 2>/dev/null || echo dev); git diff --quiet HEAD -- src Makefile plume-reu.cfg tools/*.py fonts 2>/dev/null || id=$$id+; \
 	echo "#define BUILD \"$$id\"" > build/build.tmp; cmp -s build/build.tmp $@ || mv build/build.tmp $@; rm -f build/build.tmp
-VER := 26b
+VER := 26c
 # The original (non-REU) Plume builds are no longer part of the default target (no space left for new features);
 # build them explicitly with `make build/plume-XX.crt`.
 all: $(foreach l,$(LANGS),build/plumereu-$(l)-$(VER).crt)
@@ -68,7 +68,7 @@ build/font-normal.bin: src/font.s tools/fontbin.py
 build/plumereu-%-$(VER).crt: build/plume-%-reu.prg crt-md.s crt-md.cfg tools/mkcrt.py build/led.bin build/sd.bin build/font-small.bin build/font-normal.bin
 	ca65 -D PRG_PAGES=$(PAGES) -o build/crt-$*-reu.o crt-md.s
 	ld65 -C crt-md.cfg -o build/crt-$*-reu.bin build/crt-$*-reu.o
-	OV=""; for f in $<.[0-9]*; do [ -s $$f ] && OV="$$OV $$((48 + $${f##*.}))=$$f"; done; \
+	OV=""; for f in $<.[0-9]*; do n=$${f##*.}; [ -s $$f ] && OV="$$OV $$((n > 10 ? n + 29 : 48 + n))=$$f"; done; \
 	python3 -I tools/mkcrt.py build/crt-$*-reu.bin $< $@ "PLUME-E REU $(VER) $*" md 59=build/font-normal.bin 60=build/font-small.bin 61=build/sd.bin 62=build/led.bin $$OV
 
 build/plume-%.crt: build/plume-%.prg crt.s crt.cfg tools/mkcrt.py

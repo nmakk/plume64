@@ -370,6 +370,7 @@ _next_line_buf:                 ; _nl_base / _nl_len altal megadott puffer (a so
         sta ptr4                ; x = 0
         sta ptr4+1
         lda #$FF
+        sta gp_pcol
         sta nl_space+1
         ldy #0
 @loop:  lda ptr1                ; fin du texte ?
@@ -379,19 +380,30 @@ _next_line_buf:                 ; _nl_base / _nl_len altal megadott puffer (a so
         bcc @more
         jmp @eof
 @more:  lda (ptr1),y
-        tax
-        and #$F8
-        cmp #$10
-        bne @char
-        txa                     ; marqueur de style
-        and #7
-        sta _nl_style
+        sta mk_c
+        jsr mk_dec
+        bcc @notmk
+        sta _nl_style           ; marqueur : l'etat complet
         jmp @next
+@notmk: ldx mk_c
 @char:  cpx #13
         bne @width
         jsr @inc                ; retour a la ligne : la ligne suivante commence apres
         jmp @retptr
-@width: lda _font_width-32,x    ; largeur + gras
+@width: stx gp_c                ; couleur : un mot d'une autre couleur commence sur une limite de carte (l'espace s'allonge)
+        lda _nl_style
+        sta gp_st
+        lda ptr4
+        sta gp_x
+        lda ptr4+1
+        sta gp_x+1
+        jsr gp_core
+        lda gp_x
+        sta ptr4
+        lda gp_x+1
+        sta ptr4+1
+        ldx gp_c
+        lda _font_width-32,x    ; largeur + gras
         sta tmp1
         lda _nl_style
         and #1
@@ -459,6 +471,233 @@ _next_line_buf:                 ; _nl_base / _nl_len altal megadott puffer (a so
         bne :+
         inc ptr1+1
 :       rts
+
+; Couleur : une carte (8 points) n'a qu'une couleur d'encre. Un mot d'une autre couleur
+; que le precedent, apres un espace, commence sur la limite de carte suivante si sa
+; premiere lettre tomberait dans la carte de la derniere lettre du mot precedent.
+; Entree : gp_x (x), gp_c (code), gp_st (etat). Sortie : gp_x (x ajuste). Ne touche pas Y.
+        .export _gp_adv, _gp_reset, _nopad, _cur_pad
+        .bss
+gp_x:    .res 2
+gp_c:    .res 1
+gp_st:   .res 1
+gp_col:  .res 1
+gp_pcol: .res 1         ; couleur de la derniere lettre, $FF = aucune
+gp_cell: .res 1         ; carte de son dernier point
+gp_sp:   .res 1         ; le caractere precedent etait un espace
+gp_t:    .res 2
+_nopad:  .res 1         ; 1 : pas d'allongement (impression)
+_cur_pad: .res 1        ; allongement avant le caractere sous le curseur
+        .code
+        .rodata
+gp_weak: .byte '.', ',', ';', ':', '!', '?', $27, $22, ')', '-'
+        .code
+gp_core:
+        lda _nopad
+        beq :+
+        rts
+:       lda gp_c
+        cmp #' '
+        bne :+
+        lda #1
+        sta gp_sp
+        rts
+:
+        lda gp_st
+        lsr
+        lsr
+        lsr
+        sta gp_col
+        lda gp_sp
+        beq @note
+        lda gp_pcol
+        cmp #$FF
+        beq @note
+        cmp gp_col
+        beq @note
+        lda gp_x                ; carte de x
+        lsr
+        lsr
+        lsr
+        ldx gp_x+1
+        beq :+
+        ora #$20
+:       cmp gp_cell
+        bne @note
+        lda gp_x                ; x = (x | 7) + 1
+        ora #7
+        clc
+        adc #1
+        sta gp_x
+        bcc @note
+        inc gp_x+1
+@note:  lda gp_sp               ; irasjel kozvetlenul a betu utan : a betu szinet orokli (a rest a kovetkezo szo elott szamoljuk)
+        bne @own
+        lda gp_pcol
+        cmp #$FF
+        beq @own
+        ldx #9
+:       lda gp_c
+        cmp gp_weak,x
+        beq @inh
+        dex
+        bpl :-
+        bmi @own
+@inh:   lda gp_pcol
+        sta gp_col
+@own:   lda gp_col
+        sta gp_pcol
+        ldx gp_c
+        lda _font_width-32,x
+        sta gp_t
+        lda gp_st
+        and #STYLE_BOLD
+        clc
+        adc gp_t
+        clc
+        adc gp_x                ; dernier point = x + largeur - 1
+        sta gp_t
+        lda gp_x+1
+        adc #0
+        sta gp_t+1
+        lda gp_t
+        bne :+
+        dec gp_t+1
+:       dec gp_t
+        lda gp_t
+        lsr
+        lsr
+        lsr
+        ldx gp_t+1
+        beq :+
+        ora #$20
+:       sta gp_cell
+        lda #0
+        sta gp_sp
+        rts
+
+; unsigned gp_adv(unsigned x, unsigned char c, unsigned char st) : x ajuste pour ce caractere.
+_gp_adv:
+        sta gp_st
+        jsr popa
+        sta gp_c
+        jsr popax
+        sta gp_x
+        stx gp_x+1
+        jsr gp_core
+        lda gp_x
+        ldx gp_x+1
+        rts
+
+_gp_reset:
+        lda #$FF
+        sta gp_pcol
+        rts
+
+; Marqueurs de style, de couleur et d'inverse video (voir main.c). Un marqueur donne tout l'etat :
+; bits 0-2 style, 3-5 couleur, 6 = couleur explicite, 7 = inverse (alors seul le gras reste).
+;   $10-$17 : style, sans couleur ; $C0-$FF : couleur 0-7 et style ;
+;   inverse : 18 codes de rvs_tab (index = (0 sans couleur, 1-8 couleur) * 2 + gras).
+        .export _is_mark, _mark_state, _mark_of
+        .rodata
+rvs_tab: .byte $18, $19, $1A, $1B, $1C, $1D, $1E, $1F, $01, $02, $03, $04, $05, $06, $07, $08, $0E, $0F
+        .bss
+mk_t:   .res 1
+mk_u:   .res 1
+mk_c:   .res 1
+        .code
+; A = octet. Sortie : C = 1 et A = etat si marqueur ; C = 0 sinon. Ne touche pas Y.
+mk_dec:
+        cmp #$C0
+        bcc @lo
+        and #$3F
+        ora #$40
+        sec
+        rts
+@lo:    cmp #$20
+        bcs @no
+        sta mk_t
+        and #$F8
+        cmp #$10
+        bne @r
+        lda mk_t
+        and #7
+        sec
+        rts
+@r:     lda mk_t
+        ldx #17
+@s:     cmp rvs_tab,x
+        beq @f
+        dex
+        bpl @s
+@no:    clc
+        rts
+@f:     txa
+        and #1
+        sta mk_t
+        txa
+        lsr
+        beq @d
+        sec
+        sbc #1
+        asl
+        asl
+        asl
+        ora #$40
+        ora mk_t
+        ora #$80
+        sec
+        rts
+@d:     lda mk_t
+        ora #$80
+        sec
+        rts
+_is_mark:
+        jsr mk_dec
+        lda #0
+        rol
+        ldx #0
+        rts
+_mark_state:
+        jsr mk_dec
+        ldx #0
+        rts
+_mark_of:
+        sta mk_t
+        and #$80
+        bne @rvs
+        lda mk_t
+        and #$40
+        beq @n
+        lda mk_t
+        and #$3F
+        ora #$C0
+        ldx #0
+        rts
+@n:     lda mk_t
+        and #7
+        ora #$10
+        ldx #0
+        rts
+@rvs:   lda mk_t
+        and #$40
+        beq @c0
+        lda mk_t
+        lsr
+        lsr
+        lsr
+        and #7
+        clc
+        adc #1
+@c0:    asl
+        sta mk_u
+        lda mk_t
+        and #1
+        ora mk_u
+        tax
+        lda rvs_tab,x
+        ldx #0
+        rts
 
 ; void bm_move(unsigned dst, unsigned src, unsigned len) : deplace des octets
 ; du bitmap (ROM masquee), vers le bas ou vers le haut selon les adresses.
@@ -606,12 +845,9 @@ _cur_sample:
         ora _cur_n+1
         beq @wd
         lda (ptr1),y
-        tax
-        and #$F8
-        cmp #$10
-        bne @ch
-        txa
-        and #7
+        sta mk_c
+        jsr mk_dec
+        bcc @ch0
         sta _cur_st
         inc ptr1
         bne :+
@@ -621,6 +857,7 @@ _cur_sample:
         dec _cur_n+1
 :       dec _cur_n
         jmp @w
+@ch0:   ldx mk_c
 @ch:    cpx #13
         beq @wd
         lda _font_width-32,x    ; largeur, +1 en gras
@@ -629,6 +866,7 @@ _cur_sample:
         and #STYLE_BOLD
         clc
         adc cur_w
+        adc _cur_pad            ; bloc large : sur l'espace allonge aussi
         sta cur_w
 @wd:    lda #0
         sta cm0

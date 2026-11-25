@@ -48,10 +48,12 @@ C[UPARROW], C[POUND] = 0x5E, 0x5C
 CS = bytearray([0xFF] * 65)
 CS[MINUS] = 0xDC
 CS[COLON], CS[SEMI] = 0x5B, 0x5D      # C= + Shift + e acute / a acute : [ ]
+# Shift + C= + 1..8 : a KERNAL C= + szam kodjai (a main.c translate az irasjelekre kepezi : CTRL + szam a szinek)
+for k, code in zip((D1, D2, D3, D4, D5, D6, D7, D8), (0x81, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B)): CS[k] = code
 C[LEFTARROW] = 0x5F                  # C= + <- : la fleche gauche du C64
 C[SPACE] = 0xFA             # change de clavier
 # CTRL + fleche gauche = themes (0x06, comme dans le KERNAL) ; la touche "0" (o umlaut) n'a pas de CTRL
-K[K0] = 0xFF
+K[K0] = 0x92                # CTRL + a "0" feliratu billentyu : RVS OFF (a CTRL + 9 az RVS ON, a hun_ctrl-ban 0x12)
 K[POUND] = 0xFF
 
 def rows(name, t):
