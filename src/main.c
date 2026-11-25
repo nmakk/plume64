@@ -753,6 +753,13 @@ void cursor_sample(void)
     cur_ptr = text + cursor;
     cur_n = doclen - cursor;
     cur_sample();
+#ifdef REU
+    {                                           /* RVS betun a kurzor szinei felcserelve (a sav szinu blokk beleolvadna a savba) : a blokk a papir, a betu a szoveg szine */
+        unsigned char p = COL_PAGE & 15, k = (unsigned char)(COL_PAGE >> 4);
+        if (cur_st & 0x80) { POKE(0xD028, (cur_st & 0x40) ? inkc[theme_no][(cur_st >> 3) & 7] : k); POKE(0xD029, p); }
+        else { POKE(0xD028, p); POKE(0xD029, k); }
+    }
+#endif
 }
 
 /* ------------------------------------------------------------------ */
