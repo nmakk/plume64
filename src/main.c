@@ -2241,6 +2241,17 @@ static void pk_ext(void)
             if (!(((PKNAME[n - 3] ^ pk_x[3 * k]) | (PKNAME[n - 2] ^ pk_x[3 * k + 1]) | (PKNAME[n - 1] ^ pk_x[3 * k + 2])) & 0x5F)) f = k;
     if (f < 3 && f != pk_fm) { pk_fm = f; pk_btns(); }
 }
+/* a formatum-gomb megnyomasa utan : a nev ismert vegzodese (.plm / .rtf / .txt) az uj formatumra ; mas vegzodes marad */
+static void pk_sync(void)
+{
+    unsigned char n = (unsigned char)strlen(PKNAME), k;
+    if (n > 4 && PKNAME[n - 4] == '.')
+        for (k = 0; k < 3; ++k)
+            if (!(((PKNAME[n - 3] ^ pk_x[3 * k]) | (PKNAME[n - 2] ^ pk_x[3 * k + 1]) | (PKNAME[n - 1] ^ pk_x[3 * k + 2])) & 0x5F)) {
+                memcpy(PKNAME + n - 3, pk_x + 3 * pk_fm, 3);
+                return;
+            }
+}
 /* egy billentyu a nevmezobe ; 1, ha felhasznaltuk */
 static unsigned char pk_key(unsigned char k)
 {
@@ -2294,7 +2305,10 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
     char *shown = inputbuf, *b = (char *)outbuf;
     {
         sel = 255;
-        if (newbtn) pk_name();
+        if (newbtn) {
+            if (*(unsigned char *)0x02EC) { *(unsigned char *)0x02EC = 0; pk_sync(); }      /* a formatum-gombot most nyomtak meg */
+            pk_name();
+        }
         outline_box(10, 8, 24, 272);            /* a lista: fejlec-sor (utvonal / szabad blokk) + a bejegyzesek */
         if (!sd_pk) {                           /* az SD utvonalat (lp_tail) a pick_run keszitette elo az outbuf-ba */
             if (blk_free == 0xFFFF) { strcpy(b, S_NODISK); utoa_simple(b + sizeof(S_NODISK) - 1, dev); }
@@ -2373,6 +2387,7 @@ static void pk_defname_(void)
 {
     PKNAME[0] = 0;
     *(unsigned char *)0x02EB = 0;                       /* az ablak eleje */
+    *(unsigned char *)0x02EC = 0;                       /* a formatum-gomb jelzo */
     if (filename[0]) {
         if (!sd_on) strcpy(PKNAME, filename);
         else {
@@ -2655,7 +2670,7 @@ static unsigned char choose(const char *title, unsigned char save)
                 r = 249;
             }
             if (r >= 248) { sd_pk = (r == 248); if (sd_pk) lp(3); }
-            else pk_fm = r - 245;
+            else { pk_fm = r - 245; *(unsigned char *)0x02EC = 1; }
             fpage = 0;
             pk_first = 2;                       /* csak a gombsor es a lista rajzolodik ujra */
             continue;
