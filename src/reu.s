@@ -161,10 +161,13 @@ ld_bank: lda #62
         sta $0500,x
         lda $8200,x
         sta $0600,x
-        lda $8300,x
-        sta $0700,x
         inx
         bne @c
+@d:     lda $8300,x            ; a 4. oldalnak csak az elso $A0 bajtja ($07A0-$07F7 a csere-szoveg : nem irjuk at)
+        sta $0700,x
+        inx
+        cpx #$A0
+        bne @d
         lda #$80
         sta $DE00
         pla

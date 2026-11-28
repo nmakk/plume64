@@ -131,7 +131,13 @@ typedef unsigned long dpos;             /* position dans le document (24 bits ut
 /* $0334-$03FB, tampon cassette inutilise : petites chaines. */
 #define diskmsg   ((char *)0x0334)              /* 41 octets */
 #define cmdname   ((char *)0x035D)              /* 24 */
+#ifdef REU
+#define FMAX      86                            /* a keresett / a csere szoveg legfeljebb ennyi karakter */
+#define findtext  ((unsigned char *)0x0200)     /* 87 : a BASIC bevitel-puffere ($0200-$0256), nem hasznalt */
+#define reptext   ((unsigned char *)0x07A0)     /* 87 : $07A0-$07F6 ; a led-kod betoltoje ($0400-$079F) nem irja at */
+#else
 #define findtext  ((unsigned char *)0x02D0)     /* 24 : hors du tampon cassette, que le code des leds ecrase */
+#endif
 #define filename  ((char *)0x038D)              /* 17, PETSCII */
 #define statusbuf ((char *)0x039E)              /* 40 : barre d'etat */
 #define inputbuf  ((char *)0x03C6)              /* 40 : saisie, jusqu'a $03ED */
@@ -4283,73 +4289,28 @@ static void APPLY_STYLE(unsigned char bit)
 static void apply_style(unsigned char bit) { ovl_load(12); apply_style_ov(bit); }
 #endif
 
-/* La recherche est dans l'overlay 2 (avec l'impression). */
 #ifdef REU
-#pragma code-name (push, "OVERLAY2")
-#pragma rodata-name (push, "OVERLAY2")
+static void fr_do_(unsigned char a);
+static unsigned char fr_ui_(unsigned char foc);
+static unsigned char fr_ui(unsigned char foc) { ovl_load(17); return fr_ui_(foc); }
+static void fr_do(unsigned char a) { ovl_load(16); fr_do_(a); }
+#define find_next() fr_do(0)
+static void find_dialog(void)
+{
+    unsigned char a = fr_ui(0);
+    while (a) { fr_do(a); a = fr_ui(a == 2); }
+}
 #else
-#define find_next_ find_next
-#endif
 static unsigned char lower(unsigned char c)
 {
     return (c >= 'A' && c <= 'Z') ? c + 32 : c;
 }
-
-#ifdef REU
-/* Recherche dans tout le document (positions globales), par morceaux de 256
-   octets avec 64 octets de recouvrement. */
-static dpos fms, fme;
-
-static unsigned char find_range(dpos from, dpos to, unsigned char len)
-{
-    dpos g, tot = doc_total();
-    unsigned n, i, q;
-    unsigned char k;
-    if (to > tot) to = tot;
-    for (g = from; g < to; g += 192) {
-        n = tot - g > 256 ? 256 : (unsigned)(tot - g);
-        doc_read(fbuf, g, n);
-        for (i = 0; i < 192 && g + i < to; ++i) {
-            if (IS_MARK(fbuf[i])) continue;
-            for (k = 0, q = i; k < len && q < n; ++q) {
-                if (IS_MARK(fbuf[q])) continue;
-                if (lower(fbuf[q]) != lower(findtext[k])) break;
-                ++k;
-            }
-            if (k == len) { fms = g + i; fme = g + q; return 1; }
-        }
-    }
-    return 0;
-}
-
-static void find_reu(unsigned char len)
-{
-    dpos start = win_base + (has_selection() ? sel_hi() : cursor);
-    if (!find_range(start, 0xFFFFFFFFUL, len) && !find_range(0, start + 1, len)) {
-        message(S_FIND, S_NOTFOUND, 0, 0);
-        return;
-    }
-    if (fms < win_base || fme > win_base + doclen) {
-        goto_global(fms, fme);
-        anchor = NOSEL;
-        cursor = top = 0;
-        draw_text_area();                       /* l'ecran montrait l'ancienne fenetre */
-    }
-    set_selection((unsigned)(fms - win_base), (unsigned)(fme - win_base));
-    maybe_slide();
-    draw_text_area();
-}
-#endif
-
 /* Recherche sans tenir compte des majuscules ni des marqueurs de style. */
-static void find_next_(void)
+static void find_next(void)
 {
     unsigned char len = (unsigned char)strlen((char *)findtext), k;
     unsigned start = has_selection() ? sel_hi() : cursor, p, q, tries;
     if (!len) return;
-#ifdef REU
-    if (reu_on) { find_reu(len); return; }
-#endif
     p = start;
     for (tries = 0; tries <= doclen; ++tries, ++p) {
         if (p >= doclen) p = 0;
@@ -4366,16 +4327,11 @@ static void find_next_(void)
     }
     message(S_FIND, S_NOTFOUND, 0, 0);
 }
-#ifdef REU
-#pragma rodata-name (pop)
-#pragma code-name (pop)
-static void find_next(void) { ovl_load(2); find_next_(); }
-#endif
-
 static void find_dialog(void)
 {
     if (ask_text(S_FIND, S_FINDWHAT, (char *)findtext, 22, 0)) find_next();
 }
+#endif
 
 #ifdef RTF
 /* A CTRL+1..8 szinek RGB erteke (az RTF szintablajahoz es a legkozelebbi szin keresesehez) : fekete, feher, piros, cian, lila, zold, kek, sarga */
@@ -5857,6 +5813,7 @@ static void font_fix_(void)
         w[i] = W;
     }
 }
+
 #pragma code-name (pop)
 #pragma code-name (push, "OVERLAY14")
 /* A g pozicio bekezdesenek eleje (globalis) : visszafele olvas, 256 bajtos darabokban, legfeljebb 64 KB-ig ; 0xFFFFFFFF : nem talalta */
@@ -5898,6 +5855,211 @@ static unsigned char win_align_(void)
 }
 #pragma code-name (pop)
 static dpos pstart(dpos g, unsigned char full) { unsigned char o = ovl_cur; dpos r; ovl_load(14); r = pstart_(g, full); if (o) ovl_load(o); return r; }
+
+/* Kereses / csere ablak (alul, hogy felul latszodjon a szoveg) : a gomb szama (1 Find next, 2 Repl.+next, 3 Repl. all) vagy 0 (Cancel) ; az ablak bezarodik, a hivo vegzi a muveletet es ujranyitja */
+#pragma code-name (push, "OVERLAY17")
+#pragma rodata-name (push, "OVERLAY17")
+#define FR_ROW 12
+static unsigned char fr_f;                      /* melyik sor aktiv : 0 keres, 1 csere */
+static unsigned char fr_ui_(unsigned char foc)
+{
+    unsigned char len, c, i, act, first = 1, *buf;
+    unsigned n;
+    char *sh;
+    fr_f = foc;
+    for (;;) {
+        if (first) {
+            panel(FR_ROW, 12, 8, 304);
+            put_text(24, FR_ROW + 1, S_FINDTTL, BOLD);
+            put_text(24, FR_ROW + 3, S_FINDWHAT, 0);
+            put_text(24, FR_ROW + 6, S_REPWHAT, 0);
+            outline_box(FR_ROW + 2, 3, 104, 192);
+            outline_box(FR_ROW + 5, 3, 104, 192);
+            button_w(16, FR_ROW + 9, 64, S_FINDNEXT, 0);
+            button_w(88, FR_ROW + 9, 64, S_REPNEXT, 0);
+            button_w(160, FR_ROW + 9, 64, S_REPALL, 0);
+            button_w(232, FR_ROW + 9, 64, S_CANCEL, 0);
+            first = 0;
+        }
+        for (i = 0; i < 2; ++i) {
+            buf = i ? reptext : findtext;
+            sh = (char *)outbuf;
+            strcpy(sh, (char *)buf);
+            if (i == fr_f) strcat(sh, "|");
+            n = strlen(sh);
+            if (n > 40) sh += n - 40;
+            while (text_width(sh, BOLD) > 176) ++sh;
+            clear_cells(FR_ROW + 3 + i * 3, 112, 176);
+            put_text(112, FR_ROW + 3 + i * 3, sh, BOLD);
+        }
+        buf = fr_f ? reptext : findtext;
+        len = (unsigned char)strlen((char *)buf);
+        act = 0;
+        do {
+            poll_mouse();
+            key = read_key();
+            if (clicked) {
+                if (mouse_x >= 104 && mouse_x < 296 && mouse_y / 8 >= FR_ROW + 2 && mouse_y / 8 <= FR_ROW + 7) {
+                    c = (unsigned char)(mouse_y / 8 >= FR_ROW + 5);
+                    if (c != fr_f) { fr_f = c; key = 0x7F; }
+                }
+                if (on_button(16, FR_ROW + 9)) act = 1;
+                if (on_button(88, FR_ROW + 9)) act = 2;
+                if (on_button(160, FR_ROW + 9)) act = 3;
+                if (on_button(232, FR_ROW + 9)) key = 3;
+            }
+        } while (!key && !act);
+        if (key == 3) { dialog_close(); return 0; }
+        if (key == CR) act = fr_f ? 2 : 1;
+        if (act) {
+            if (!strlen((char *)findtext)) continue;
+            dialog_close();
+            return act;
+        }
+        if (key == 9 || key == 0x11 || key == 0x91) { fr_f ^= 1; continue; }
+        if (key == 0x14) { if (len) buf[len - 1] = 0; continue; }
+        if (key >= 0x85 && key <= 0x8C && (PEEK(0x028D) & 2)) continue;       /* C= + F : igazitas a szerkesztoben, az ablakban nem csinal semmit */
+        if (key == 0x8A || key == 0x16) {            /* beillesztes a vágolapról : stílusjelek nélkül, a sortörés szóköz */
+            n = cliplen > 160 ? 160 : (unsigned)cliplen;
+            if (!n) continue;                           /* ures vagolap : a 0 hosszu REU-atvitel 64 KB-ot masolna */
+            clip_io(1, outbuf, 0, n);
+            for (i = 0; i < n && len < FMAX; ++i) {
+                c = outbuf[i];
+                if (IS_MARK(c) || (c < ' ' && c != CR)) continue;
+                buf[len++] = c == CR ? ' ' : c;
+            }
+            buf[len] = 0;
+            continue;
+        }
+        if (len < FMAX && (c = translate(key)) != 0) { buf[len++] = c; buf[len] = 0; }
+    }
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+#pragma code-name (push, "OVERLAY16")
+#pragma rodata-name (push, "OVERLAY16")
+/* Kereses (kis/nagybetu es stilusjelek nelkul) es csere. */
+static dpos fms, fme;
+static unsigned char lower(unsigned char c)
+{
+    return (c >= 'A' && c <= 'Z') ? c + 32 : c;
+}
+/* Az egesz dokumentumban (globalis helyek), 256 bajtos darabokban 128 bajt atfedessel (legfeljebb ~120 karakter). */
+static unsigned char find_range(dpos from, dpos to, unsigned char len)
+{
+    dpos g, tot = doc_total();
+    unsigned n, i, q;
+    unsigned char k;
+    if (to > tot) to = tot;
+    for (g = from; g < to; g += 128) {
+        n = tot - g > 256 ? 256 : (unsigned)(tot - g);
+        doc_read(fbuf, g, n);
+        for (i = 0; i < 128 && g + i < to; ++i) {
+            if (IS_MARK(fbuf[i])) continue;
+            for (k = 0, q = i; k < len && q < n; ++q) {
+                if (IS_MARK(fbuf[q])) continue;
+                if (lower(fbuf[q]) != lower(findtext[k])) break;
+                ++k;
+            }
+            if (k == len) { fms = g + i; fme = g + q; return 1; }
+        }
+    }
+    return 0;
+}
+/* A kovetkezo talalat kijelolese ; 0, ha nincs. */
+/* ctx : az ablakbol hivva, a talalat a kepernyo felso reszen jelenjen meg */
+static unsigned char find_one(unsigned char ctx)
+{
+    unsigned char len = (unsigned char)strlen((char *)findtext);
+    unsigned k;
+    dpos start = win_base + (has_selection() ? sel_hi() : cursor);
+    if (!len) return 0;
+    if (!find_range(start, 0xFFFFFFFFUL, len) && !find_range(0, start + 1, len)) return 0;
+    if (fms < win_base || fme > win_base + doclen) {
+        goto_global(fms, fme);
+        anchor = NOSEL;
+        cursor = top = 0;
+        draw_text_area();
+    }
+    set_selection((unsigned)(fms - win_base), (unsigned)(fme - win_base));
+    maybe_slide();
+    draw_text_area();
+    if (ctx) {
+        k = line_of(cursor);
+        if (k < top || k > top + 8) { top = k > 3 ? k - 3 : 0; draw_text_area(); place_cursor(); }
+    }
+    return 1;
+}
+/* A kijeloles pontosan a keresett szoveg ? */
+static unsigned char sel_is_match(void)
+{
+    unsigned p, b = sel_hi();
+    unsigned char k = 0;
+    if (!has_selection()) return 0;
+    for (p = sel_lo(); p < b; ++p) {
+        if (IS_MARK(text[p])) continue;
+        if (!findtext[k] || lower(text[p]) != lower(findtext[k])) return 0;
+        ++k;
+    }
+    return k && !findtext[k];
+}
+/* [a, b) lecserelese a csere-szovegre, a talalat elso betujenek stilusaval ; a kurzor a csere vegere kerul. */
+static unsigned char repl_range(unsigned a, unsigned b)
+{
+    unsigned char *q = outbuf + 300, n = 0, here, st, after, m = (unsigned char)strlen((char *)reptext);
+    unsigned p0 = a;
+    while (p0 < b && IS_MARK(text[p0])) ++p0;
+    here = style_before(a);
+    st = style_before(p0);
+    after = style_before(b);
+    if (st != here) q[n++] = MARK(st);
+    memcpy(q + n, reptext, m);
+    n += m;
+    if (after != st && b < doclen && !IS_MARK(text[b])) q[n++] = MARK(after);
+    anchor = NOSEL;
+    cursor = a;
+    if (!replace(a, b, q, n, 0)) return 0;
+    cursor = a + (st != here) + m;
+    return 1;
+}
+static void repl_all(void)
+{
+    static dpos pos;
+    static unsigned cnt;
+    unsigned char len = (unsigned char)strlen((char *)findtext);
+    char *m = (char *)outbuf + 100;
+    cnt = 0;
+    pos = 0;
+    quiet = 1;
+    pg_begin("", doc_total() + 1);
+    while (find_range(pos, 0xFFFFFFFFUL, len)) {
+        if (cnt == 50) jr_off = 1;                               /* sok csere : nincs naplo (gyorsabb), a vegen az undo-elozmeny torlodik */
+        for (; pos + 1000 < fms; pos += 1000) pg_add(1000);
+        goto_global(fms, fme);
+        if (!repl_range((unsigned)(fms - win_base), (unsigned)(fme - win_base))) break;
+        ++cnt;
+        pos = win_base + cursor;
+    }
+    pg_end();
+    if (cnt > 50) { jr_off = 0; jr_clear(); }
+    quiet = 0;
+    anchor = NOSEL;
+    layout_all();
+    redraw_all();
+    cursor_moved();
+    if (!cnt) { message(S_FIND, S_NOTFOUND, 0, 0); return; }
+    strcpy(utoa_simple(m, cnt), S_REPDONE);
+    message(S_FIND, m, 0, 0);
+}
+static void fr_do_(unsigned char a)
+{
+    if (a == 3) { repl_all(); return; }                          /* a 0 : Find next az Edit menubol */
+    if (!findtext[0]) return;
+    if (a == 2 && sel_is_match()) repl_range(sel_lo(), sel_hi());
+    if (!find_one(a)) message(S_FIND, S_NOTFOUND, 0, 0);
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
 #pragma code-name (push, "OVERLAY15")
 static dpos gcg;                                /* a kurzor globalis helye az igazitas alatt */
 static void gshift(unsigned q, signed char d)   /* beszuras (+1) / torles (-1) a q ablak-helyen : a kurzor es a kijeloles horgonya csuszik */
@@ -6844,6 +7006,9 @@ void main(void)
 {
     POKE(0x0291, 0x80);
     findtext[0] = 0;
+#ifdef REU
+    reptext[0] = 0;
+#endif
 #ifdef KBD_HU
     hu_last = 0xFF;                     /* aucune touche de la couche vue */
 #endif                            /* tampon cassette : pas remis a zero */
