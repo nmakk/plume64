@@ -2298,12 +2298,26 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
 /* ---- Fajlvalaszto a SD-kartyan (UCI) ---- */
 /* SD-nev (ASCII / UTF-8) -> PETSCII megjelenitesre, legfeljebb n jel (d: n+1 bajt) ; ha hosszabb, kozepen "~"-vel rovidul (a kiterjesztes lathato marad). */
 #define sd_tmp ((char *)outbuf + 192)           /* atmeneti nev, 64 bajt */
+/* Ketbajtos UTF-8 jel (vezeto a, folytato b) belso betukodja ; ? ha a betutipusban nincs. Latin-1 kiegeszites (U+00C0..FF), ő ű Ő Ű, « » ° */
+static const unsigned char lat1[64] = {
+    143, 169, 144, 63, 63, 167, 165, 145, 147, 146, 148, 149, 63, 171, 150, 151, 63, 63, 63, 173, 152, 63, 180, 63,
+    166, 153, 175, 154, 155, 63, 63, 63, 128, 168, 129, 63, 130, 164, 162, 131, 133, 132, 134, 135, 63, 170, 136, 137,
+    63, 63, 63, 172, 138, 63, 139, 63, 163, 140, 174, 141, 142, 63, 63, 63
+};
+static unsigned char u2c(unsigned char a, unsigned char b)
+{
+    if (a == 0xC3) return lat1[b & 0x3F];
+    if (a == 0xC5) return b == 0x90 ? 177 : b == 0x91 ? 176 : b == 0xB0 ? 179 : b == 0xB1 ? 178 : '?';
+    if (a == 0xC2) return b == 0xAB ? 158 : b == 0xBB ? 159 : b == 0xB0 ? 160 : '?';
+    return '?';
+}
 static void sd_conv(char *d, const unsigned char *s, unsigned char n)
 {
     unsigned char c, i = 0, h, t;
     while ((c = *s++) != 0 && i < 63) {
-        if (c >= 0x80 && c < 0xC0) continue;            /* UTF-8 folytatobajt */
-        if (c >= 'a' && c <= 'z') c -= 0x20;
+        if (c >= 0xC2 && c < 0xE0 && (*s & 0xC0) == 0x80) c = u2c(c, *s++);      /* ketbajtos UTF-8 : belso betukod */
+        else if (c >= 0x80 && c < 0xC0) continue;            /* UTF-8 folytatobajt */
+        else if (c >= 'a' && c <= 'z') c -= 0x20;
         else if (c >= 'A' && c <= 'Z') c += 0x80;
         else if (c >= 0xC0) c = '?';
         sd_tmp[i] = (char)c;                            /* (nem sd_tmp[i++] : a cc65 az allando cimu tombnel a novelest az indexeles elott vegzi) */
@@ -2433,17 +2447,16 @@ static void sd_enter(void)
     io_show();
     lp_sync();
 }
-/* A fejlec: az utvonal vege (hosszu utvonalnal ~-vel kezdve). */
+/* A fejlec: az utvonal vege (hosszu utvonalnal ~-vel kezdve) ; a nevek az sd_conv-vel (UTF-8 ekezetek belso betukodra). */
 static void lp_tail(char *d)
 {
     unsigned n;
     io_hide();
     n = strlen(LPATH);
-    if (n <= 40) strcpy(d, LPATH);
-    else { d[0] = '~'; strcpy(d + 1, LPATH + n - 39); }
+    sd_conv(d, (unsigned char *)(n > 40 ? LPATH + n - 39 : LPATH), 63);
     io_show();
-    for (n = 0; d[n]; ++n) if ((unsigned char)d[n] >= 0x80) d[n] = (unsigned char)d[n] >= 0xC0 ? '?' : 1;      /* UTF-8 bajtok : a vezeto ? , a folytato torlendo */
-    for (n = 0; d[n]; ) if (d[n] == 1) strcpy(d + n, d + n + 1); else ++n;
+    petscii_to_text(d, d);
+    if (n > 40) { memmove(d + 1, d, strlen(d) + 1); d[0] = '~'; }
 }
 /* A rezidens kod (choose, rq_list, indulas) szamara : 0 torles, 1 mentes, 2 visszaallitas, 3 gyoker ha meg nincs, 4 gyoker, 5 gyoker-e. */
 static unsigned char lp_op_(unsigned char op)
