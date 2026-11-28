@@ -2256,7 +2256,8 @@ static void pk_sync(void)
 static unsigned char pk_key(unsigned char k)
 {
     unsigned char ch = 0;
-    if (((k >= 0x20 && k <= 0x5A) || (k >= 0xC1 && k <= 0xDA)) && !strchr(",:*?\"=", k) && (sd_pk || strlen(PKNAME) < 12 || k == '.' || strchr(PKNAME, '.'))) ch = k;
+    if (sd_pk && (ch = translate(k)) >= 128 && ch < 181) ;                        /* ekezetes betu (C= + betu) : az SD-n UTF-8 nevkent mentodik */
+    else if (ch = 0, ((k >= 0x20 && k <= 0x5A) || (k >= 0xC1 && k <= 0xDA)) && !strchr(",:*?\"=", k) && (sd_pk || strlen(PKNAME) < 12 || k == '.' || strchr(PKNAME, '.'))) ch = k;
     if (!pk_edit(PKNAME, sd_pk ? 24 : 16, k, ch)) return 0;
     pk_ext();
     pk_name();
@@ -5600,6 +5601,11 @@ static void rq_bck_(void)                      /* melyik listabeli fajlnak van .
 #pragma code-name (push, "OVERLAY9")
 #pragma rodata-name (push, "OVERLAY9")
 static const char fext[3][4] = { "PLM", "RTF", "TXT" };
+/* A belso betukodok 128..180 UTF-8 megfeleloje (ket bajt ; 0,0 : nincs ketbajtos) : az ekezetes fajlnevek mentesehez */
+static const unsigned char u8t[53][2] = {
+    {195,160}, {195,162}, {195,164}, {195,167}, {195,169}, {195,168}, {195,170}, {195,171}, {195,174}, {195,175}, {195,180}, {195,182}, {195,185}, {195,187}, {195,188}, {195,128}, {195,130}, {195,135}, {195,137}, {195,136}, {195,138}, {195,139}, {195,142}, {195,143}, {195,148}, {195,153}, {195,155}, {195,156}, {197,147}, {197,146}, {194,171}, {194,187}, {194,176}, {0,0}, {195,166}, {195,184}, {195,165}, {195,134}, {195,152}, {195,133}, {195,161}, {195,129}, {195,173}, {195,141}, {195,179}, {195,147}, {195,186}, {195,154}, {197,145}, {197,144}, {197,177}, {197,176}, {195,150}
+};
+
 /* Letezik-e az sd_cand nevu fajl az aktualis SD-mappaban ? (a teljes listat vegigolvassa) */
 static unsigned char sd_exists(void)
 {
@@ -5621,13 +5627,16 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
         if (!e) { strcat(buf, "."); strcat(buf, fext[pk_fm]); }
         else if (!e[1]) strcat(buf, fext[pk_fm]);
         if (sd_pk) {
-            for (i = 0; (c = (unsigned char)buf[i]) != 0; ++i) {
+            for (i = 0, ex = 0; (c = (unsigned char)buf[i]) != 0 && ex < 60; ++i) {                /* az ex itt az irasi index (a hely a BSS-ben fogyott el) */
                 if (c >= 0xC1 && c <= 0xDA) c -= 0x80;
                 else if (c >= 0x41 && c <= 0x5A) c += 0x20;
-                else if (c >= 0x80) c = '_';
-                sd_cand[i] = (char)c;
+                else if (c >= 0x80) {                                                 /* ekezetes betu : UTF-8 (ketbajtos) ; ha nincs ilyen, _ */
+                    if (c < 181 && u8t[c - 128][0]) { sd_cand[ex++] = (char)u8t[c - 128][0]; c = u8t[c - 128][1]; }
+                    else c = '_';
+                }
+                sd_cand[ex++] = (char)c;
             }
-            sd_cand[i] = 0;
+            sd_cand[ex] = 0;
             ex = sd_exists();
         } else {
             scan_dir(buf);
