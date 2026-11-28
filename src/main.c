@@ -5855,10 +5855,19 @@ static unsigned char win_align_(void)
 }
 #pragma code-name (pop)
 static dpos pstart(dpos g, unsigned char full) { unsigned char o = ovl_cur; dpos r; ovl_load(14); r = pstart_(g, full); if (o) ovl_load(o); return r; }
-
 /* Kereses / csere ablak (alul, hogy felul latszodjon a szoveg) : a gomb szama (1 Find next, 2 Repl.+next, 3 Repl. all) vagy 0 (Cancel) ; az ablak bezarodik, a hivo vegzi a muveletet es ujranyitja */
 #pragma code-name (push, "OVERLAY17")
 #pragma rodata-name (push, "OVERLAY17")
+/* RVS szoveget tartalmazo kijeloles : a kurzorral azonos sebessegu villogas */
+static void sel_blink(void)
+{
+    if (!has_selection()) sel_rvs = sel_hide = 0;
+    else if (sel_rvs && ((PEEK(0xA2) & 0x20) != 0) != sel_hide) {
+        sel_hide = (PEEK(0xA2) & 0x20) != 0;
+        draw_lines(line_of(sel_lo()), line_of(sel_hi()) > top + 9u ? top + 9u : line_of(sel_hi()));     /* az ablak alatti sorokat nem rajzoljuk ujra */
+    }
+}
+
 #define FR_ROW 12
 static unsigned char fr_f;                      /* melyik sor aktiv : 0 keres, 1 csere */
 static unsigned char fr_ui_(unsigned char foc)
@@ -5897,6 +5906,7 @@ static unsigned char fr_ui_(unsigned char foc)
         act = 0;
         do {
             poll_mouse();
+            sel_blink();                               /* a talalat (kijeloles) villog, ha RVS szoveget tartalmaz */
             key = read_key();
             if (clicked) {
                 if (mouse_x >= 104 && mouse_x < 296 && mouse_y / 8 >= FR_ROW + 2 && mouse_y / 8 <= FR_ROW + 7) {
@@ -5922,7 +5932,7 @@ static unsigned char fr_ui_(unsigned char foc)
         if (key == 0x8A || key == 0x16) {            /* beillesztes a vágolapról : stílusjelek nélkül, a sortörés szóköz */
             n = cliplen > 160 ? 160 : (unsigned)cliplen;
             if (!n) continue;                           /* ures vagolap : a 0 hosszu REU-atvitel 64 KB-ot masolna */
-            clip_io(1, outbuf, 0, n);
+            reu_move(1, outbuf, c_base, n);              /* (a clip_io az OVL5-ben van : innen nem hivhato) */
             for (i = 0; i < n && len < FMAX; ++i) {
                 c = outbuf[i];
                 if (IS_MARK(c) || (c < ' ' && c != CR)) continue;
