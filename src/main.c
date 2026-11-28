@@ -582,8 +582,12 @@ static unsigned char sel_in_window(void) { return anchor == NOSEL || (agl >= win
 #define AL_J 0x09
 #define AL_C 0x0B
 #define AL_R 0x0C
-#define IS_AL(c) ((c) == AL_J || (c) == AL_C || (c) == AL_R)
-#define AL_OF(c) ((c) == AL_C ? 1 : (c) == AL_R ? 2 : (c) == AL_J ? 3 : 0)
+unsigned char modkeys(void);                              /* gfx.s : modosito billentyuk a matrixbol */
+static void do_menu(unsigned char m, unsigned char item);
+unsigned char __fastcall__ is_al(unsigned char c);       /* gfx.s : igazitas-jel ($09, $0B, $0C) ? */
+unsigned char __fastcall__ al_of(unsigned char c);       /* gfx.s : 0 bal, 1 kozep, 2 jobb, 3 sorkizart */
+#define IS_AL(c) is_al(c)
+#define AL_OF(c) al_of(c)
 static unsigned char win_al, win_al_ok;         /* az ablak elejen atnyulo bekezdes igazitasa (win_align) */
 static unsigned char ln_al, ln_sp, ln_ex, ln_rem, ln_done;
 static unsigned ln_off;
@@ -773,6 +777,7 @@ static unsigned cursor_x(void)
     for (; p < doclen; ++p) {
         c = text[p];
         if (IS_MARK(c)) { st = STATE(c); continue; }
+        if (c < ' ' && c != CR) continue;           /* igazitas-jel */
         if (c != CR) cur_pad = (unsigned char)(gp_adv(x, c, st) - x);
         break;
     }
@@ -1119,6 +1124,8 @@ static const char ms_SHIFT_RESTORE[] = "SHIFT+RESTORE";
 static const char ms_SHIFT_HOME[] = "SHIFT+HOME";
 static const char ms_HOME[] = "HOME";
 static const char ms_CTRL_I[] = "CTRL+I";
+static const char ms_CTRL_N[] = "CTRL+N", ms_CTRL_O[] = "CTRL+O", ms_CTRL_S[] = "CTRL+S", ms_CTRL_A[] = "CTRL+A", ms_CTRL_F[] = "CTRL+F", ms_CTRL_P[] = "CTRL+P";
+static const char ms_C__F1[] = "C=+F1", ms_C__F3[] = "C=+F3", ms_C__F5[] = "C=+F5", ms_C__F7[] = "C=+F7";
 static const char ms_F3[] = "F3";
 static const char ms_F5[] = "F5";
 static const char ms_F7[] = "F7";
@@ -1171,12 +1178,12 @@ static const char *const menu_items[NMENUS][MENUW] = {
 /* A billentyuk : nagybetus nevek '+'-szal elvalasztva, a menu sapkakent rajzolja ('<' : balra nyil). */
 static const char *const menu_keys[NMENUS][MENUW] = {
 #ifdef RTF
-    { ms_empty, ms_empty, ms_empty, ms_empty, ms_F1, ms_empty, ms_empty, 0 },
+    { ms_CTRL_N, ms_CTRL_O, ms_empty, ms_empty, ms_F1, ms_CTRL_S, ms_empty, 0 },
 #else
     { ms_empty, ms_empty, ms_F1, ms_empty, 0 },
 #endif
 #ifdef REU
-    { ms_RESTORE, ms_SHIFT_RESTORE, ms_F6, ms_F2, ms_F4, ms_empty, ms_empty, ms_F8, ms_SHIFT_HOME, ms_HOME, ms_CTRL_I,
+    { ms_RESTORE, ms_SHIFT_RESTORE, ms_F6, ms_F2, ms_F4, ms_CTRL_A, ms_CTRL_F, ms_F8, ms_SHIFT_HOME, ms_HOME, ms_CTRL_I,
 #ifdef HUN
       ms_SHIFT_DEL,
 #endif
@@ -1191,9 +1198,9 @@ static const char *const menu_keys[NMENUS][MENUW] = {
 #endif
 #ifdef REU
     { ckey, ckey, ckey, ckey, ckey, ckey, ckey, ckey, 0 },       /* a szamot a run_menu_ irja be */
-    { ms_empty, ms_empty, ms_empty, ms_empty, 0 },
+    { ms_C__F1, ms_C__F3, ms_C__F5, ms_C__F7, 0 },
 #endif
-    { ms_empty, ms_empty, ms_empty, 0 },
+    { ms_CTRL_P, ms_empty, ms_empty, 0 },
 #if defined(HUN) && defined(REU)
     { ms_empty, ms_C__SPACE, ms_empty, ms_RUN_STOP, 0 },
 #elif defined(HUN)
@@ -1756,23 +1763,13 @@ static void reu_move(unsigned char fetch, void *mem, dpos ra, unsigned n)
 }
 
 /* A C64 RAM-ban (a ROM alatt levo bitmapben is) levo blokk mozgatasa a REU DMA-javal : a bloc-notesbe (suf_end) menti, onnan tolti vissza (az atfedes is jo).
-   Kis blokknal memmove (a bitmap-mozgatasok mindig >= 200 bajtosak : a ROM alatti terulet memmove-val nem olvashato). A <= 768 bajtos mozgatas a
+   A <= 768 bajtos mozgatas a
    bloc-notesz vegen (suf_end + 0xD00) dolgozik, hogy nyomtatas kozben ne irja felul az ott tarolt ablakot. */
 static void fmove(unsigned dst, unsigned src, unsigned n)
 {
     dpos sc;
-    if (n < 200) { memmove((void *)dst, (void *)src, n); return; }
     sc = n > 768 ? suf_end : suf_end + 0xD00UL;
-    if (src >= 0xE000u) {                       /* a REU a C64 buszan olvas : a bitmap felett a KERNAL ROM latszik, ezert a ROM-ot elrejtjuk (mint a bm_move) */
-        unsigned char sv;
-        __asm__("php");
-        __asm__("sei");
-        sv = *(volatile unsigned char *)1;
-        *(volatile unsigned char *)1 = 0x35;
-        reu_move(0, (void *)src, sc, n);
-        *(volatile unsigned char *)1 = sv;
-        __asm__("plp");
-    } else reu_move(0, (void *)src, sc, n);
+    reu_move(0, (void *)src, sc, n);                /* (a reu_stash a ROM-ot elrejti a DMA idejere : reu.s) */
     reu_move(1, (void *)dst, sc, n);
 }
 
@@ -2072,7 +2069,8 @@ static unsigned char nfiles, fmore;
 static unsigned fpage;                          /* a lista elejen atugrott bejegyzesek szama (gorgo: 1-gyel, nyil: egy oldallal) */
 
 /* Page fpage de MAXFILES noms ; fmore : il y en a d'autres apres. */
-static void scan_dir(const char *find)
+#pragma code-name (push, "OVERLAY14")
+static void scan_dir_(const char *find)
 {
     struct cbm_dirent e;
     unsigned char r;
@@ -2095,6 +2093,10 @@ static void scan_dir(const char *find)
     cbm_closedir(1);
     fmore = tot > skip + nfiles;
 }
+#pragma code-name (pop)
+#pragma code-name (push, "CODE")
+static void scan_dir(const char *find) { unsigned char o = ovl_cur; ovl_load(14); scan_dir_(find); if (o) ovl_load(o); }
+#pragma code-name (pop)
 
 #pragma code-name (push, "OVERLAY7")
 #pragma rodata-name (push, "OVERLAY7")
@@ -3932,12 +3934,16 @@ static void insert_char(unsigned char c)
     if (style != here && b < doclen && !IS_MARK(text[b])) seq[n++] = MARK(here);
     cursor = p + (style != here ? 2 : 1);
     if (!replace(p, b, seq, n, 0)) cursor = p;
+#ifdef REU
+    else if (c == CR) cursor = canonical(cursor);       /* Enter : a kovetkezo bekezdes igazitas-jele moge */
+#endif
 }
 
 static void delete_before(void)
 {
     if (has_selection()) { delete_selection(); return; }
     anchor = NOSEL;
+    if (cursor > 1 && canonical(cursor - 1) == cursor) { delete_range(cursor - 2, cursor); return; }     /* igazitas-jel mogott : a CR es a jel torlodik (osszefuzes) */
     if (cursor) delete_range(cursor - 1, cursor);
 }
 
@@ -5861,6 +5867,20 @@ static dpos pstart_(dpos g, unsigned char full)
     }
     return lim ? 0xFFFFFFFFUL : 0;
 }
+/* Gyorsbillentyuk : CTRL + N O S F A P (a menupontok), C= + F1 F3 F5 F7 : igazitas. Ket kod a matrixbol dol el : CTRL+S es HOME ($13), CTRL+F es CTRL+<- ($06). */
+static unsigned char quick_key_(unsigned char k)
+{
+    unsigned char m = 0;
+    if (k == 0x13 || k == 0x06 || k >= 0x89) m = modkeys();
+    if (k == 0x01) return 1 + 8 + 5;                        /* CTRL+A : mindent kijelol (Edit, 5) */
+    if (k == 0x0E) return 1 + 0 + 0;                        /* CTRL+N : uj (File, 0) */
+    if (k == 0x0F) return 1 + 0 + 1;                        /* CTRL+O : megnyitas (File, 1) */
+    if (k == 0x10) return 1 + 8 * M_PRINT + 0;              /* CTRL+P : nyomtatas */
+    if (k == 0x13 && (m & 4)) return 1 + 0 + 5;             /* CTRL+S : mentes (File, 5) */
+    if (k == 0x06 && !(m & 8)) return 1 + 8 + 6;            /* CTRL+F : kereses (Edit, 6 ; a CTRL+<- a temavaltas) */
+    if (k >= 0x89 && (m & 2)) return 1 + 8 * M_ALIGN + (k - 0x89);   /* C= + F1 F3 F5 F7 : balra, kozepre, jobbra, sorkizart */
+    return 0;
+}
 /* Az ablak elejen atnyulo bekezdes igazitasa (a bekezdes elso bajtja a REU-ban) */
 static unsigned char win_align_(void)
 {
@@ -5964,6 +5984,7 @@ static void set_align_(unsigned char al)
 }
 #pragma code-name (pop)
 static unsigned char win_align(void) { unsigned char o = ovl_cur, r; ovl_load(14); r = win_align_(); if (o) ovl_load(o); return r; }
+static unsigned char quick_key(unsigned char k) { unsigned char o = ovl_cur, r; ovl_load(14); r = quick_key_(k); if (o) ovl_load(o); return r; }
 static void set_align(unsigned char al) { unsigned char o = ovl_cur; ovl_load(15); set_align_(al); if (o) ovl_load(o); }
 static void font_fix(void) { unsigned char o = ovl_cur; ovl_load(4); font_fix_(); if (o) ovl_load(o); }
 #endif
@@ -6145,12 +6166,16 @@ static void move_right(void)
     unsigned p = cursor;
     while (p < doclen && IS_MARK(text[p])) ++p;
     if (p < doclen) ++p;
-    cursor = p;
+    cursor = canonical(p);                          /* a bekezdes elejen az igazitas-jel utan allunk meg */
 }
 
 static void move_left(void)
 {
-    if (cursor) cursor = canonical(cursor - 1);
+    unsigned p;
+    if (!cursor) return;
+    p = canonical(cursor - 1);
+    if (p == cursor && cursor > 1) p = canonical(cursor - 2);   /* az igazitas-jel mogott : az elozo bekezdes vegere */
+    cursor = p;
 }
 
 /* Accents sous C=. Edition hongroise : les positions de AltGr dans hu_prog
@@ -6364,7 +6389,7 @@ static void delete_after(void)
     if (has_selection()) { delete_selection(); return; }
     anchor = NOSEL;
     while (p < doclen && IS_MARK(text[p])) ++p;
-    if (p < doclen) delete_range(cursor, p + 1);
+    if (p < doclen) delete_range(cursor, canonical(p + 1));     /* a CR utan az igazitas-jel is torlodik */
 }
 #endif
 #ifdef HUN
@@ -6438,6 +6463,12 @@ static void handle_key(unsigned char k)
     if (k >= 0xF4 && k <= 0xF7) { selmove(k); cursor_moved(); return; }
 #else
     if ((PEEK(0x028D) & 2) && (k == 0x1D || k == 0x9D || k == 0x11 || k == 0x91)) { selmove(k); cursor_moved(); return; }       /* C= tartva */
+#endif
+#ifdef REU
+    if ((k < 0x11 && k != 9 && k != 13 && k != 5 && k != 3) || k == 0x13 || (k >= 0x89 && k <= 0x8C)) {
+        c = quick_key(k);                               /* az overlay csak donti (menu * 8 + pont + 1) : a menupontot a rezidens kod hivja (az betolthet overlayt) */
+        if (c) { do_menu((unsigned char)((c - 1) >> 3), (unsigned char)((c - 1) & 7)); return; }
+    }
 #endif
     switch (k) {
     case CR:   key_click(); insert_char(CR); return;

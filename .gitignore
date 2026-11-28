@@ -10,3 +10,4 @@ tools/c64u/c64u-ki/
 
 # Local working notes (Hungarian), not published
 PLUME-NOTES.md
+.claude/settings.local.json

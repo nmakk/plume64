@@ -48,8 +48,17 @@ setup:
 ; void reu_stash(void) : RAM C64 -> REU
 _reu_stash:
         jsr setup
+        php                     ; a REU a C64 buszan olvas : a bitmap ($E000-) felett a KERNAL ROM latszana, ezert a DMA idejere a ROM-ok el vannak rejtve ($01 = $35)
+        sei
+        lda $01
+        pha
+        lda #$35
+        sta $01
         lda #CMD_STASH
         sta REU_CMD
+        pla
+        sta $01
+        plp
         rts
 
 ; void reu_fetch(void) : REU -> RAM C64

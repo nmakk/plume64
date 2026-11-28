@@ -905,9 +905,19 @@ _cur_sample:
         dec _cur_n+1
 :       dec _cur_n
         jmp @w
+@sk:    inc ptr1                ; vezerlokod (igazitas-jel) : nulla szelesseg, atlepjuk (kulonben a kurzor 255 pont szeles lenne)
+        bne :+
+        inc ptr1+1
+:       lda _cur_n
+        bne :+
+        dec _cur_n+1
+:       dec _cur_n
+        jmp @w
 @ch0:   ldx mk_c
 @ch:    cpx #13
         beq @wd
+        cpx #32
+        bcc @sk
         lda _font_width-32,x    ; largeur, +1 en gras
         sta cur_w
         lda _cur_st
@@ -1225,4 +1235,87 @@ _cur_arrow:
         iny
         cpy #8
         bne @l
+        rts
+
+; Igazitas-jelek : $09 sorkizart (3), $0B kozep (1), $0C jobb (2).
+        .export _is_al, _al_of
+_is_al:
+        cmp #9
+        beq @y
+        cmp #11
+        beq @y
+        cmp #12
+        beq @y
+        lda #0
+        ldx #0
+        rts
+@y:     lda #1
+        ldx #0
+        rts
+_al_of:
+        ldx #3
+        cmp #9
+        beq @r
+        ldx #1
+        cmp #11
+        beq @r
+        ldx #2
+        cmp #12
+        beq @r
+        ldx #0
+@r:     txa
+        ldx #0
+        rts
+
+; unsigned char modkeys(void) : a modosito billentyuk allapota a billentyuzet-matrixbol (a KERNAL $028D nem megbizhato) : bit0 Shift, bit1 C=, bit2 CTRL, bit3 <-.
+        .export _modkeys
+_modkeys:
+        php
+        sei
+        lda #0
+        sta tmp1
+        lda #$FD                ; sor 1 : bal Shift (7. oszlop)
+        sta $DC00
+        nop
+        nop
+        lda $DC01
+        and #$80
+        bne @n1
+        inc tmp1
+@n1:    lda #$BF                ; sor 6 : jobb Shift (4. oszlop)
+        sta $DC00
+        nop
+        nop
+        lda $DC01
+        and #$10
+        bne @n2
+        lda #1
+        ora tmp1
+        sta tmp1
+@n2:    lda #$7F                ; sor 7 : <- (1), CTRL (2), C= (5)
+        sta $DC00
+        nop
+        nop
+        lda $DC01
+        tax
+        and #$20
+        bne @n3
+        lda tmp1
+        ora #2
+        sta tmp1
+@n3:    txa
+        and #$04
+        bne @n4
+        lda tmp1
+        ora #4
+        sta tmp1
+@n4:    txa
+        and #$02
+        bne @n5
+        lda tmp1
+        ora #8
+        sta tmp1
+@n5:    plp
+        lda tmp1
+        ldx #0
         rts
