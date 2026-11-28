@@ -2350,9 +2350,12 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
             if (pk_btn && clicked && mouse_y / 8 >= 6 && mouse_y / 8 <= 8) {
                 if (sd_ok && mouse_x >= 24 && mouse_x < 72) sel = 249;
                 else if (sd_ok && mouse_x >= 80 && mouse_x < 128) sel = 248;
-                else if (pk_save && mouse_x >= 136 && mouse_x < 184) sel = 245;
-                else if (pk_save && mouse_x >= 192 && mouse_x < 240) sel = 246;
-                else if (pk_save && mouse_x >= 248 && mouse_x < 296) sel = 247;
+                else if (pk_save && mouse_x >= 136 && mouse_x < 296 && (mouse_x - 136) % 56 < 48) {     /* PLM / RTF / TXT : csak a gombok es a nev frissul, a mappat nem olvassuk ujra */
+                    pk_fm = (unsigned char)((mouse_x - 136) / 56);
+                    pk_btns();
+                    pk_sync();
+                    pk_name();
+                }
             }
             if (clicked && mouse_y / 8 >= 12 && mouse_y / 8 <= 16) {
                 i = (unsigned char)(mouse_y / 8 - 12);
