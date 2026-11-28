@@ -2,7 +2,7 @@
 
 **A graphical word processor for the Commodore 64 with a REU: documents of up to about 15 MB, RTF and plain-text files, the SD card and USB of a C64 Ultimate, undo/redo and a quick save.** Mouse or joystick, pull-down menus, bold, italic, underline, accented characters (French, Danish, Hungarian) and printing on a Commodore MPS-803, all on a Magic Desk cartridge that boots straight into the editor.
 
-**PlumE** (the *E* stands for *enhanced*) is an extended fork of [**Plume**](https://github.com/labbej27/plume64) by **LABBEJ27**. Its edition for a C64 with a REU is called **PlumE REU** and is numbered by year and letter: `26a` was the first release of 2026, `26b` the first correction of it and `26c` the third release (text colours and reverse video). PlumE REU is based on Plume 2.2 and is a separate project. The original Plume is small on purpose and runs on an unexpanded C64; PlumE REU needs a REU of at least 256 KB (on a C64 Ultimate: the 16 MB REU enabled). If you have no REU, use the original Plume.
+**PlumE** (the *E* stands for *enhanced*) is an extended fork of [**Plume**](https://github.com/labbej27/plume64) by **LABBEJ27**. Its edition for a C64 with a REU is called **PlumE REU** and is numbered by year and letter: `26a` was the first release of 2026, `26b` the first correction of it and `26c` the third release (text colours and reverse video) and `26d` the fourth (paragraph alignment, find and replace, recent files). PlumE REU is based on Plume 2.2 and is a separate project. The original Plume is small on purpose and runs on an unexpanded C64; PlumE REU needs a REU of at least 256 KB (on a C64 Ultimate: the 16 MB REU enabled). If you have no REU, use the original Plume.
 
 ## Features
 
@@ -21,6 +21,9 @@
 - **Text colours and reverse video (RVS)**: the eight colours of the number keys on `CTRL` + `1` … `8` (black, white, red, cyan, purple, green, blue, yellow), RVS on `CTRL` + `9` and off `CTRL` + `0` (all of it also in the *Color* menu, with the key caps); every theme keeps the colours visible (white on white is light grey, black on black is dark grey). Saved in PLM and RTF (`\cf`, `\highlight`). The C64 colours are per 8x8 cell, so colouring works best word by word: see *Colours in detail* below.
 - **Typographic punctuation**: `„` `”` `“` `‘` `’` `–` `—` `•` on `C=` + `1` … `8` (`Shift` + `C=` + `1` … `8` in the Hungarian layout); the RTF `\endash`, `\emdash`, `\bullet`, `\lquote`, `\rquote`, `\ldblquote`, `\rdblquote` and `\uN` codes are read and written back, the plain `"` and `'` stay on the keyboard as they were.
 - **Paragraph alignment**: *Align* menu with Left, Centre, Right and Justify (justified text spreads the spaces; the last line stays left), for the paragraph at the cursor or the whole selection (also *Select all* of a big document). Saved in PLM and RTF (`\qc` `\qr` `\qj`).
+- **Find and replace** (`CTRL`+`F`): a window at the bottom of the screen keeps the text visible; *Find next*, *Replace and next*, *Replace all* (with a progress bar); the replacement keeps the style of the replaced letter. Both fields are real line editors (blinking cursor, cursor keys, insert, delete, paste with `F4` / `CTRL`+`V`).
+- **Recent files** (C64 Ultimate only): the last five files opened or saved are listed in the *File* menu under *Open*; the list is kept in `/Flash/config/plume.cfg`.
+- **Save as with a name field**: type the name next to the title, the *PLM* / *RTF* / *TXT* buttons win over a known extension (`abc.txt` with *RTF* pressed is saved as `abc.rtf`; other extensions such as `.cfg` are kept); *Save* always saves into the folder you are in. Folders and files need a double click (`Tab` enters a folder from the keyboard).
 - **Fixed width** (*Style → Fixed width*) shows the text in equal-width cells; the menus always use the small font.
 - **Four colour themes** (`CTRL` + `←`); on a C64 Ultimate the keyboard and case LEDs follow the theme and the keyboard LED shows unsaved changes.
 - **Printing** on a Commodore MPS-803 / MPS-801 (device 4) with 3 cm margins on A4: *Graphics* (exactly what is on screen), *Text* (the printer's characters, faster, without accents) and *Wide text*; large documents are printed in chunks. A progress bar shows how far printing is. On a C64 Ultimate, a document with colours or RVS prints in colour (see *Colour printing*).
@@ -69,7 +72,7 @@ The file requester (Open with its *Open* button, Save as with the format buttons
 
 ## Install
 
-1. Copy the cartridge for your edition to your SD card or USB drive: [`dist/plumereu-en-26c.crt`](dist/plumereu-en-26c.crt), [`fr`](dist/plumereu-fr-26c.crt), [`dk`](dist/plumereu-dk-26c.crt) or [`hu`](dist/plumereu-hu-26c.crt) (also attached to the [release](https://github.com/nmakk/plume64/releases)). They are Magic Desk cartridges.
+1. Copy the cartridge for your edition to your SD card or USB drive: [`dist/plumereu-en-26d.crt`](dist/plumereu-en-26d.crt), [`fr`](dist/plumereu-fr-26d.crt), [`dk`](dist/plumereu-dk-26d.crt) or [`hu`](dist/plumereu-hu-26d.crt) (also attached to the [release](https://github.com/nmakk/plume64/releases)). They are Magic Desk cartridges.
 2. On a C64 Ultimate enable the REU (at least 256 KB; 16 MB recommended), then run the `.crt` from the Ultimate's file browser. Files on the SD card, USB and FTP need the Ultimate's command interface (tested with firmware 3.14 on an Ultimate II+L and 1.2.1 on a C64 Ultimate); Plume checks it at start-up. Without it the program still starts, but there is no SD, USB or FTP access (it reports "No C64 Ultimate found.") and everything works on a disk in drive 8. Without a REU the program also starts, but no text can be entered: the document lives in the REU.
 3. For disk documents put a disk or a `.d64` / `.d81` in drive 8. [`dist/plume.d64`](dist/plume.d64) is an empty `.d64`.
 
@@ -79,7 +82,7 @@ The file requester (Open with its *Open* button, Save as with the format buttons
 
 **Pointer**: a 1351 mouse on port 1 (a USB mouse on the C64 Ultimate; with a wheel if *Mouse Mode* is *Mouse + Wheel*), or a joystick on port 2 or 1 (one pixel per frame for precise aiming, then faster; fire clicks; hold fire while moving to select). Port 2 is better: port 1 shares its wires with the keyboard, so the keyboard is ignored while a port 1 joystick moves.
 
-**Files**: *File → Open…* opens any format; *Save* and *Quick save* keep the document's format and place; *Save as…* opens the requester with the *PLM* / *RTF* / *TXT* buttons (a new document starts with RTF). A name typed without an extension gets the format's extension. The `.bck` files of the quick save are hidden in the requester; a file that has one is marked with a `*` at the left edge of the list (changes that are only quick saved). Clicking *Disk* again steps to the next IEC drive that answers (`D 8`..`D 11`).
+**Files**: *File → Open…* opens any format; *Save* and *Quick save* keep the document's format and place; *Save as…* opens the requester with the *PLM* / *RTF* / *TXT* buttons (a new document starts with RTF). A name typed without an extension gets the format's extension; the buttons set the extension of a known one (`.plm`, `.rtf`, `.txt`) and typing such an extension presses the button. The `.bck` files of the quick save are hidden in the requester; a file that has one is marked with a `*` at the left edge of the list (changes that are only quick saved). Clicking *Disk* again steps to the next IEC drive that answers (`D 8`..`D 11`).
 
 ### Editions
 
@@ -157,7 +160,7 @@ A Commodore 64 Ultimate (firmware 1.2.1) with a 16 MB REU, at 1 MHz and 64 MHz, 
 
 ## Building
 
-`make`, `python3`, [cc65](https://github.com/cc65/cc65) and [VICE](https://vice-emu.sourceforge.io) (for `c1541`) are needed (`brew install cc65 vice` on macOS). Then run `make`: it builds `build/plumereu-fr-26c.crt`, `plumereu-en-26c.crt`, `plumereu-dk-26c.crt` and `plumereu-hu-26c.crt`. The original-edition cartridges (`build/plume-XX.crt`, for an unexpanded C64) are no longer part of the default target; build them with `make build/plume-en.crt` etc. They are kept for reference and are not developed further here.
+`make`, `python3`, [cc65](https://github.com/cc65/cc65) and [VICE](https://vice-emu.sourceforge.io) (for `c1541`) are needed (`brew install cc65 vice` on macOS). Then run `make`: it builds `build/plumereu-fr-26d.crt`, `plumereu-en-26d.crt`, `plumereu-dk-26d.crt` and `plumereu-hu-26d.crt`. The original-edition cartridges (`build/plume-XX.crt`, for an unexpanded C64) are no longer part of the default target; build them with `make build/plume-en.crt` etc. They are kept for reference and are not developed further here.
 
 ## How it is made
 
