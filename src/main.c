@@ -98,7 +98,7 @@ static unsigned rowbase(unsigned char r) { return SCREEN + (unsigned)r * 320u; }
 #endif
 #define MAXDOC    MAXDOC_TEST_N         /* build de test : la place manque avec les crochets de test */
 #else
-#define MAXDOC    3250u                 /* fenetre en RAM ; le document entier est dans le REU */
+#define MAXDOC    3200u                 /* fenetre en RAM ; le document entier est dans le REU */
 #endif
 #else
 #define MAXDOC    20000u
@@ -1975,7 +1975,7 @@ static unsigned char disk_status(void)
     int r;
     diskmsg[0] = 0;
 #ifdef REU
-    if (sd_on) { n = sd_bad; sd_bad = 0; strcpy(diskmsg, "SD ERROR"); return n; }
+    if (sd_on) { n = sd_bad; sd_bad = 0; utoa_simple(strcpy(diskmsg, "FILE ERROR ") + 11, n); return n; }       /* a kod az Ultimate (UCI) hibakodja */
 #endif
     if (cbm_open(15, dev, 15, "")) return 99;
     r = cbm_read(15, diskmsg, 40);
@@ -3317,9 +3317,13 @@ static unsigned char file_kind_(void)
 #pragma code-name (pop)
 static unsigned char file_kind(void) { ovl_load(6); return file_kind_(); }
 /* Charge "filename" (disque ou SD) dans le format que son contenu indique. */
+static void ftp_uncache(void);
 static void load_any(void)
 {
-    unsigned char k = file_kind(), b = k == 3;
+    unsigned char k, b;
+    if (sd_on) ftp_uncache();                   /* FTP : friss fajl (a gyorsitotar torlese) es a letoltes kivarasa az elso megnyitas elott */
+    k = file_kind();
+    b = k == 3;
     if (k == 4) return;                         /* bináris fajl, a felhasznalo megszakitotta */
     if (b) k = 2;
     if (k && !reu_on) { message(S_OPENRTF, S_NEEDREU, 0, 0); return; }
@@ -4637,6 +4641,13 @@ static void ftp_uncache_(void)
     memcpy(SD_PATH, outbuf + 320, 64);
     memcpy(SD_NAME, outbuf + 384, 64);
     sd_bad = 0;
+    disk_busy(1);
+    for (o = (char *)0; (unsigned)o < 20; o = (char *)((unsigned)o + 1)) {      /* az elso megnyitas tolti le a fajlt az FTP-rol : amig az tart, hibat ad ; legfeljebb kb. 20 s-ig varunk (masodpercenkent probalunk) */
+        if (!sd_open(1)) { sd_close(); break; }
+        for (k = (char *)(unsigned)PEEK(0xA2); (unsigned char)((unsigned char)PEEK(0xA2) - (unsigned char)(unsigned)k) < 60; ) ;
+    }
+    disk_busy(0);
+    sd_bad = 0;
 }
 #pragma code-name (pop)
 #pragma code-name (push, "CODE")                  /* a stub rezidens (nem az OVL8-ban : az ovl_load(14) felulirna) */
@@ -4649,7 +4660,6 @@ static void load_rtf_a(void)
     rlim = suf_end;
     if (!sd_on) scan_dir(filename);             /* la taille du fichier (en blocs) pour la barre de progression */
     disk_busy(1);
-    if (sd_on) ftp_uncache();
     ok = fo_r(filename);
     if (ok && sd_on) { sd_bad = 0; ok = fo_r(filename); }       /* egyszer ujraprobaljuk (felbehagyott listazas, atmeneti UCI hiba) */
     if (ok != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
