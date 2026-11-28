@@ -2442,6 +2442,8 @@ static void lp_tail(char *d)
     if (n <= 40) strcpy(d, LPATH);
     else { d[0] = '~'; strcpy(d + 1, LPATH + n - 39); }
     io_show();
+    for (n = 0; d[n]; ++n) if ((unsigned char)d[n] >= 0x80) d[n] = (unsigned char)d[n] >= 0xC0 ? '?' : 1;      /* UTF-8 bajtok : a vezeto ? , a folytato torlendo */
+    for (n = 0; d[n]; ) if (d[n] == 1) strcpy(d + n, d + n + 1); else ++n;
 }
 /* A rezidens kod (choose, rq_list, indulas) szamara : 0 torles, 1 mentes, 2 visszaallitas, 3 gyoker ha meg nincs, 4 gyoker, 5 gyoker-e. */
 static unsigned char lp_op_(unsigned char op)
@@ -4291,14 +4293,16 @@ static void apply_style(unsigned char bit) { ovl_load(12); apply_style_ov(bit); 
 
 #ifdef REU
 static void fr_do_(unsigned char a);
-static unsigned char fr_ui_(unsigned char foc);
-static unsigned char fr_ui(unsigned char foc) { ovl_load(17); return fr_ui_(foc); }
+static unsigned char fr_f;                      /* melyik sor aktiv : 0 keres, 1 csere (a hivo allitja az ablak nyitasa elott) */
+static unsigned char fr_ui_(void);
+static unsigned char fr_ui(void) { ovl_load(17); return fr_ui_(); }
 static void fr_do(unsigned char a) { ovl_load(16); fr_do_(a); }
 #define find_next() fr_do(0)
 static void find_dialog(void)
 {
-    unsigned char a = fr_ui(0);
-    while (a) { fr_do(a); a = fr_ui(a == 2); }
+    unsigned char a;
+    fr_f = 0;
+    while ((a = fr_ui()) != 0) { fr_do(a); fr_f = a == 2; }
 }
 #else
 static unsigned char lower(unsigned char c)
@@ -5834,8 +5838,11 @@ static dpos pstart_(dpos g, unsigned char full)
 static unsigned char quick_key_(unsigned char k)
 {
     unsigned char m = 0;
-    if (k == 0x13 || k == 0x06 || k >= 0x89) m = modkeys();
+    if (k == 0x13 || k == 0x06 || k == 3 || k >= 0x89) m = modkeys();
     if (k == 0x01) return 1 + 8 + 5;                        /* CTRL+A : mindent kijelol (Edit, 5) */
+    if (k == 0x18) return 1 + 8 + 2;                        /* CTRL+X : kivag */
+    if (k == 0x16) return 1 + 8 + 4;                        /* CTRL+V : beillesztes */
+    if (k == 3 && (m & 4)) return 1 + 8 + 3;                /* CTRL+C : masolas (a kodja azonos a RUN/STOP-ewal : a CTRL-t a matrixbol latjuk) */
     if (k == 0x0E) return 1 + 0 + 0;                        /* CTRL+N : uj (File, 0) */
     if (k == 0x0F) return 1 + 0 + 1;                        /* CTRL+O : megnyitas (File, 1) */
     if (k == 0x10) return 1 + 8 * M_PRINT + 0;              /* CTRL+P : nyomtatas */
@@ -5869,13 +5876,11 @@ static void sel_blink(void)
 }
 
 #define FR_ROW 12
-static unsigned char fr_f;                      /* melyik sor aktiv : 0 keres, 1 csere */
-static unsigned char fr_ui_(unsigned char foc)
+static unsigned char fr_ui_(void)
 {
     unsigned char len, c, i, act, first = 1, *buf;
     unsigned n;
     char *sh;
-    fr_f = foc;
     for (;;) {
         if (first) {
             panel(FR_ROW, 12, 8, 304);
@@ -6643,7 +6648,7 @@ static void handle_key(unsigned char k)
     if ((PEEK(0x028D) & 2) && (k == 0x1D || k == 0x9D || k == 0x11 || k == 0x91)) { selmove(k); cursor_moved(); return; }       /* C= tartva */
 #endif
 #ifdef REU
-    if ((k < 0x11 && k != 9 && k != 13 && k != 5 && k != 3) || k == 0x13 || (k >= 0x89 && k <= 0x8C)) {
+    if ((k < 0x11 && k != 9 && k != 13 && k != 5) || k == 0x13 || k == 0x16 || k == 0x18 || (k >= 0x89 && k <= 0x8C)) {
         c = quick_key(k);                               /* az overlay csak donti (menu * 8 + pont + 1) : a menupontot a rezidens kod hivja (az betolthet overlayt) */
         if (c) { do_menu((unsigned char)((c - 1) >> 3), (unsigned char)((c - 1) & 7)); return; }
     }
