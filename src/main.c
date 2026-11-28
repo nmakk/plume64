@@ -586,8 +586,12 @@ static const unsigned char inkc[NTHEMES][8] = {
     { 11, 1, 10, 3, 4,  5, 14, 7 },     /* sarga a feketen */
 };
 #endif
+#ifdef REU
+void __fastcall__ rvs_tail(unsigned from, unsigned to);     /* gfx.s : az RVS-sav vege a betu vegen er veget, nem a cellahataron */
+#endif
 static void draw_line(unsigned i)
 {
+    unsigned rvx = 0;
     unsigned char row, st, c, pcell = 0xFF, pweak = 0, psp = 0, pv = 0, ract = 0, rr = 0, f;
     unsigned p, end, x = TEXT_X0, lo = sel_lo(), hi = sel_hi(), rs = 0;
 #define SELFLUSH(xe) if ((xe) > rs && !(rr && sel_hide)) xor_span(row, rs, (xe))      /* a kijeloles szakaszai : az RVS-es szakasz villog (sel_hide) */
@@ -627,9 +631,13 @@ static void draw_line(unsigned i)
         gch = c;
         gstyle = st & 7;
         gx = gp_adv(x, c, st);
+#ifdef REU
+        if (rvx && (c != ' ' || (st & 0x80))) { rvs_tail(rvx, gx); rvx = 0; }
+#endif
         draw_glyph();
         x = gx + CW(c, st);
 #ifdef REU
+        if (st & 0x80) rvx = x;
         if (c != ' ' || (st & 0x80)) {          /* a betu cellainak szine (az utolso betu nyer, de az irasjel nem veszi el a betu cellajat) ; RVS : a szokoz cellai is */
             unsigned char *cc = COLORS + row * 40, k = (unsigned char)(gx >> 3), e = (unsigned char)((x - 1) >> 3), ink = (st & 0x40) ? inkc[theme_no][(st >> 3) & 7] : (unsigned char)(COL_PAGE >> 4), pap = (unsigned char)(COL_PAGE & 15), v, weak = (unsigned char)(c != ' ' && strchr(".,;:!?'\")-", c) != 0);
             v = (st & 0x80) ? (unsigned char)((pap << 4) | ink) : (unsigned char)((ink << 4) | pap);
@@ -650,6 +658,7 @@ static void draw_line(unsigned i)
     }
     if (ract) SELFLUSH(x);
 #ifdef REU
+    if (rvx) rvs_tail(rvx, 0xFFFF);
 show:
     draw_off = 0;
     bm_move(ROWBASE(row), LINEBUF, 312);        /* la colonne 39 est l'ascenseur */
@@ -954,61 +963,148 @@ static void pg_end(void)
 /* ------------------------------------------------------------------ */
 /* Menus et panneaux                                                   */
 
+#ifdef REU
+#define NMENUS 6
+#define M_COLOR 3
+#define M_PRINT 4
+#define M_HELP 5
+static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENUC, S_MENU3, S_MENU4 };
+#else
 #define NMENUS 5
+#define M_COLOR 99
+#define M_PRINT 3
+#define M_HELP 4
 static const char *const menu_title[NMENUS] = { S_MENU0, S_MENU1, S_MENU2, S_MENU3, S_MENU4 };
-#define MENUW 12
+#endif
+#define MENUW 13
 #ifdef REU
 #pragma rodata-name (push, "OVERLAY10")
 #endif
+static const char ms_S_NEW[] = S_NEW;
+static const char ms_S_OPEN[] = S_OPEN;
+static const char ms_S_RELOAD[] = S_RELOAD;
+static const char ms_S_RELOADB[] = S_RELOADB;
+static const char ms_S_QSAVE[] = S_QSAVE;
+static const char ms_S_SAVE[] = S_SAVE;
+static const char ms_S_SAVEAS[] = S_SAVEAS;
+static const char ms_S_CUT[] = S_CUT;
+static const char ms_S_COPY[] = S_COPY;
+static const char ms_S_PASTE[] = S_PASTE;
+static const char ms_S_SELALL[] = S_SELALL;
+static const char ms_S_FIND[] = S_FIND;
+static const char ms_S_FINDNEXT[] = S_FINDNEXT;
+static const char ms_S_UNDO[] = S_UNDO;
+static const char ms_S_REDO[] = S_REDO;
+static const char ms_S_DELFWD[] = S_DELFWD;
+static const char ms_S_LINEEND[] = S_LINEEND;
+static const char ms_S_TABK[] = S_TABK;
+static const char ms_S_PLAIN[] = S_PLAIN;
+static const char ms_S_BOLD[] = S_BOLD;
+static const char ms_S_ITALIC[] = S_ITALIC;
+static const char ms_S_UNDERLINE[] = S_UNDERLINE;
+static const char ms_S_RVSON[] = S_RVSON;
+static const char ms_S_RVSOFF[] = S_RVSOFF;
+static const char ms_S_COLORS[] = S_COLORS;
+static const char ms_S_SMALL[] = S_SMALL;
+static const char ms_S_PGRAPH[] = S_PGRAPH;
+static const char ms_S_PTEXT[] = S_PTEXT;
+static const char ms_S_PWIDE[] = S_PWIDE;
+static const char ms_S_ABOUT[] = S_ABOUT;
+static const char ms_S_KBD[] = S_KBD;
+static const char ms_S_CLICK[] = S_CLICK;
+static const char ms_S_OVERWR[] = S_OVERWR;
+static const char ms_S_MENUKEY[] = S_MENUKEY;
+static const char ms_empty[] = "";
+static const char ms_F1[] = "F1";
+static const char ms_F6[] = "F6";
+static const char ms_F2[] = "F2";
+static const char ms_F4[] = "F4";
+static const char ms_F8[] = "F8";
+static const char ms_RESTORE[] = "RESTORE";
+static const char ms_SHIFT_RESTORE[] = "SHIFT+RESTORE";
+static const char ms_SHIFT_HOME[] = "SHIFT+HOME";
+static const char ms_HOME[] = "HOME";
+static const char ms_CTRL_I[] = "CTRL+I";
+static const char ms_F3[] = "F3";
+static const char ms_F5[] = "F5";
+static const char ms_F7[] = "F7";
+static const char ms_CTRL_9[] = "CTRL+9";
+static const char ms_CTRL_0[] = "CTRL+0";
+static const char ms_CTRL__[] = "CTRL+<";
+static const char ms_C__SPACE[] = "C=+SPACE";
+static const char ms_SHIFT_DEL[] = "SHIFT+DEL";
+static const char ms_RUN_STOP[] = "RUN/STOP";
+#ifdef REU
+static const char cn0[] = S_C0, cn1[] = S_C1, cn2[] = S_C2, cn3[] = S_C3, cn4[] = S_C4, cn5[] = S_C5, cn6[] = S_C6, cn7[] = S_C7;
+static char ckey[] = "CTRL+1";
+#endif
 static const char *const menu_items[NMENUS][MENUW] = {
 #ifdef RTF
-    { S_NEW, S_OPEN, S_RELOAD, S_RELOADB, S_QSAVE, S_SAVE, S_SAVEAS, 0 },
+    { ms_S_NEW, ms_S_OPEN, ms_S_RELOAD, ms_S_RELOADB, ms_S_QSAVE, ms_S_SAVE, ms_S_SAVEAS, 0 },
 #else
-    { S_NEW, S_OPEN, S_SAVE, S_SAVEAS, 0 },
+    { ms_S_NEW, ms_S_OPEN, ms_S_SAVE, ms_S_SAVEAS, 0 },
 #endif
 #ifdef REU
-    { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, S_UNDO, S_REDO, S_DELFWD, S_LINEEND, S_TABK, 0 },
-#else
-    { S_CUT, S_COPY, S_PASTE, S_SELALL, S_FIND, S_FINDNEXT, 0 },
-#endif
-#ifdef REU
-    { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, S_RVSON, S_RVSOFF, S_COLORS, S_SMALL, 0 },
-#else
-    { S_PLAIN, S_BOLD, S_ITALIC, S_UNDERLINE, 0 },
-#endif
-    { S_PGRAPH, S_PTEXT, S_PWIDE, 0 },
+    { ms_S_UNDO, ms_S_REDO, ms_S_CUT, ms_S_COPY, ms_S_PASTE, ms_S_SELALL, ms_S_FIND, ms_S_FINDNEXT, ms_S_DELFWD, ms_S_LINEEND, ms_S_TABK,
 #ifdef HUN
-    { S_ABOUT, S_KBD, S_CLICK, S_OVERWR, S_MENUKEY, 0 },
-#elif defined(REU)
-    { S_ABOUT, S_CLICK, S_MENUKEY, 0 },
+      ms_S_OVERWR,
+#endif
+      0 },
 #else
-    { S_ABOUT, 0 },
+    { ms_S_CUT, ms_S_COPY, ms_S_PASTE, ms_S_SELALL, ms_S_FIND, ms_S_FINDNEXT, 0 },
+#endif
+#ifdef REU
+    { ms_S_PLAIN, ms_S_BOLD, ms_S_ITALIC, ms_S_UNDERLINE, ms_S_RVSON, ms_S_RVSOFF, ms_S_COLORS, ms_S_SMALL, 0 },
+#else
+    { ms_S_PLAIN, ms_S_BOLD, ms_S_ITALIC, ms_S_UNDERLINE, 0 },
+#endif
+#ifdef REU
+    { cn0, cn1, cn2, cn3, cn4, cn5, cn6, cn7, 0 },
+#endif
+    { ms_S_PGRAPH, ms_S_PTEXT, ms_S_PWIDE, 0 },
+#if defined(HUN) && defined(REU)
+    { ms_S_ABOUT, ms_S_KBD, ms_S_CLICK, ms_S_MENUKEY, 0 },
+#elif defined(HUN)
+    { ms_S_ABOUT, ms_S_KBD, ms_S_CLICK, ms_S_OVERWR, ms_S_MENUKEY, 0 },
+#elif defined(REU)
+    { ms_S_ABOUT, ms_S_CLICK, ms_S_MENUKEY, 0 },
+#else
+    { ms_S_ABOUT, 0 },
 #endif
 };
 /* A billentyuk : nagybetus nevek '+'-szal elvalasztva, a menu sapkakent rajzolja ('<' : balra nyil). */
 static const char *const menu_keys[NMENUS][MENUW] = {
 #ifdef RTF
-    { "", "", "", "", "F1", "", "", 0 },
+    { ms_empty, ms_empty, ms_empty, ms_empty, ms_F1, ms_empty, ms_empty, 0 },
 #else
-    { "", "", "F1", "", 0 },
+    { ms_empty, ms_empty, ms_F1, ms_empty, 0 },
 #endif
 #ifdef REU
-    { "F6", "F2", "F4", "", "", "F8", "RESTORE", "SHIFT+RESTORE", "SHIFT+HOME", "HOME", "CTRL+I", 0 },
-#else
-    { "F6", "F2", "F4", "", "", "F8", 0 },
-#endif
-#ifdef REU
-    { "", "F3", "F5", "F7", "CTRL+9", "CTRL+0", "CTRL+<", "", 0 },
-#else
-    { "", "F3", "F5", "F7", 0 },
-#endif
-    { "", "", "", 0 },
+    { ms_RESTORE, ms_SHIFT_RESTORE, ms_F6, ms_F2, ms_F4, ms_empty, ms_empty, ms_F8, ms_SHIFT_HOME, ms_HOME, ms_CTRL_I,
 #ifdef HUN
-    { "", "C=+SPACE", "", "SHIFT+DEL", "RUN/STOP", 0 },
-#elif defined(REU)
-    { "", "", "RUN/STOP", 0 },
+      ms_SHIFT_DEL,
+#endif
+      0 },
 #else
-    { "", 0 },
+    { ms_F6, ms_F2, ms_F4, ms_empty, ms_empty, ms_F8, 0 },
+#endif
+#ifdef REU
+    { ms_empty, ms_F3, ms_F5, ms_F7, ms_CTRL_9, ms_CTRL_0, ms_CTRL__, ms_empty, 0 },
+#else
+    { ms_empty, ms_F3, ms_F5, ms_F7, 0 },
+#endif
+#ifdef REU
+    { ckey, ckey, ckey, ckey, ckey, ckey, ckey, ckey, 0 },       /* a szamot a run_menu_ irja be */
+#endif
+    { ms_empty, ms_empty, ms_empty, 0 },
+#if defined(HUN) && defined(REU)
+    { ms_empty, ms_C__SPACE, ms_empty, ms_RUN_STOP, 0 },
+#elif defined(HUN)
+    { ms_empty, ms_C__SPACE, ms_empty, ms_SHIFT_DEL, ms_RUN_STOP, 0 },
+#elif defined(REU)
+    { ms_empty, ms_empty, ms_RUN_STOP, 0 },
+#else
+    { ms_empty, 0 },
 #endif
 };
 #ifdef REU
@@ -3104,6 +3200,8 @@ static void open_doc(void)
 #define WIDE_COLS   29
 #define TEAR_GRAPH  12
 #define TEAR_TEXT   8
+#define PGK 64                                  /* a nyomtatas haladasa 64x finomabb : a kis dokumentum savja is vegigmegy */
+#define PGB(x) ((unsigned)(x) << 6)
 
 /* La ligne en cours de dessin (strip) n'est plus lue quand une passe part :
    elle partage donc la place de outbuf. rows, lui, vit en meme temps que
@@ -3223,6 +3321,9 @@ static void print_graphics(void)
     wrap_width = PRINT_W;
     while (print_ok && !stop_pressed()) {
         n = next_line(p, st);
+#ifdef REU
+        pg_add(PGB(n - p));
+#endif
         memset(strip, 0, PRINT_CARDS * 8);      /* nem sizeof : REU-ban az outbuf mutato */
         gbase = (unsigned)strip;
         x = PRINT_LEFT;
@@ -3299,9 +3400,16 @@ static void print_text(unsigned char wide)
 #else
     while (p < doclen && print_ok && !stop_pressed()) {
 #endif
-        if (IS_MARK(text[p])) { ++p; continue; }
+        if (IS_MARK(text[p])) { ++p;
+#ifdef REU
+            pg_add(PGB(1));
+#endif
+            continue; }
         if (text[p] == CR) {
             pr_send(line, n); pr_byte(CR); n = left; ++p;
+#ifdef REU
+            pg_add(PGB(1));
+#endif
             continue;
         }
         /* longueur visible du mot suivant (espace comprise) */
@@ -3317,6 +3425,9 @@ static void print_text(unsigned char wide)
             if (n - left == limit) { pr_send(line, n); pr_byte(CR); n = left; }
             line[n++] = to_printer(text[q]);
         }
+#ifdef REU
+        pg_add(PGB(word - p));
+#endif
         p = word;
     }
     if (n > left) { pr_send(line, n); pr_byte(CR); }
@@ -3334,9 +3445,11 @@ static void print_doc(unsigned char mode)
     if (print_ok) {
 #ifdef REU
         print_begin();
+        pg_begin("", doc_total() * PGK);         /* haladas a also savban */
 #endif
         if (mode == 0) print_graphics(); else print_text(mode == 2);
 #ifdef REU
+        pg_end();
         print_end();
 #endif
     }
@@ -3348,7 +3461,227 @@ static void print_doc(unsigned char mode)
 #pragma rodata-name (pop)
 #pragma code-name (pop)
 #ifdef REU
-static void print_run(unsigned char mode) { nopad = 1; ovl_load(2); print_doc(mode); nopad = 0; }      /* a nyomtatas az aktualis betukeszlettel tordel es rajzol, szoveg-nyujtas nelkul */
+/* Szines nyomtatas az Ultimate virtualis nyomtatojan (PNG COLOR). Ha a dokumentumban van szin vagy RVS, a nyomtato beallitasait az
+   Ultimate REST API-ja allitja at a led-modulon at (src/led.s -D PR, 63. bank), a nyomtatas pedig tintaszint valt (ESC r n).
+   A grafikus mod Epson FX-80 emulaciot hasznal (8 tu = egy szovegsor : nincs sorok kozti atfedes), a szoveges a Commodore MPS-t. */
+static unsigned char pr_col;                    /* a legutobbi nyomtatas szines volt (az Ultimate beallitasai at vannak allitva) */
+#pragma code-name (push, "OVERLAY13")
+#pragma rodata-name (push, "OVERLAY13")
+static const unsigned char pcol[8] = { 0, 255, 5, 2, 1, 6, 3, 4 };      /* CTRL+1..8 -> tinta : fekete, (feher : nincs), narancs, cian, magenta, zold, viola, sarga */
+static const unsigned char init[5] = { 27, '@', 27, '3', 24 };      /* reset ; sortav 24/216" = 8/72" (fajl szinten : a fuggvenyen beluli adat a kod elejere kerulne) */
+static const char c_accent[] = "aaaceeeeiioouuuAACEEEEIIOUUU      aoaAOAaAiIoOuUoOuUO";
+static void c_send(const void *d, unsigned n)
+{
+    if (!print_ok || !n) return;
+    cbm_write(4, d, n);
+    if (cbm_k_readst() & 0x80) print_ok = 0;
+}
+static void c_byte(unsigned char b) { c_send(&b, 1); }
+static void c_ink(unsigned char c)
+{
+    unsigned char b[3];
+    b[0] = 27; b[1] = 'r'; b[2] = c;
+    c_send(b, 3);
+}
+static unsigned char c_pc(unsigned char st) { return (st & 0x40) ? pcol[(st >> 3) & 7] : 0; }
+static unsigned char c_more(void)
+{
+    dpos n;
+    unsigned k;
+    print_g += doclen;
+    n = doc_total() - print_g;
+    if (!n) return 0;
+    k = n > PMAX ? PMAX : (unsigned)n;
+    doc_read(text, print_g, k);
+    if (k < n) {
+        while (k && text[k - 1] != CR) --k;
+        if (!k) k = n > PMAX ? PMAX : (unsigned)n;
+    }
+    doclen = k;
+    return 1;
+}
+static void c_begin(void)
+{
+    print_win = doclen;
+    reu_move(0, text, suf_end, doclen);
+    win_in_reu = 1;
+    print_g = 0;
+    doclen = 0;
+    c_more();
+}
+static void c_end(void)
+{
+    win_in_reu = 0;
+    doclen = print_win;
+    reu_move(1, text, suf_end, doclen);
+}
+static unsigned char c_color_doc(void)
+{
+    unsigned p;
+    unsigned char found = 0;
+    if (PEEK(0xDF1D) != 0xC9) return 0;         /* csak Ultimate (UCI) : valodi nyomtatonak nem kuldunk Epson-kodokat */
+    c_begin();
+    do {
+        for (p = 0; p < doclen; ++p)
+            if (IS_MARK(text[p]) && (STATE(text[p]) & 0xC0)) { found = 1; break; }
+    } while (!found && c_more());
+    c_end();
+    return found;
+}
+static void c_graphics(void)
+{
+    unsigned p = 0, n, q, x, k, i, e;
+    unsigned char r, c, st = 0, pc, cur = 0, m, b, hdr[4];
+    unsigned char *cc = (unsigned char *)rows, *db = (unsigned char *)rows + 480;
+    c_send(init, 5);
+    c_ink(0);
+    wrap_width = PRINT_W;
+    while (print_ok && !(PEEK(0x91) == 0x7F)) {
+        n = next_line(p, st);
+        pg_add(PGB(n - p));
+        memset(strip, 0, PRINT_CARDS * 8);
+        memset(cc, 0xFE, PRINT_CARDS * 8);
+        gbase = (unsigned)strip;
+        x = PRINT_LEFT;
+        for (q = p; q < n; ++q) {
+            c = text[q];
+            if (IS_MARK(c)) { st = STATE(c); continue; }
+            if (c == CR) continue;
+            gch = c;
+            gstyle = st & 7;
+            gx = x;
+            draw_glyph();
+            pc = c_pc(st);
+            e = x + CW(c, st);
+            if (e > PRINT_CARDS * 8) e = PRINT_CARDS * 8;
+            if (c != ' ' || (st & 0x80) || pc == 255) {
+                for (k = x; k < e; ++k) {
+                    m = (unsigned char)(0x80 >> (k & 7));
+                    for (r = 0; r < 8; ++r) {
+                        if (st & 0x80) strip[(k >> 3) * 8 + r] ^= m;       /* RVS : a betu a savban lyuk */
+                        if (pc == 255) strip[(k >> 3) * 8 + r] &= (unsigned char)~m;      /* feher : nem nyomtat */
+                    }
+                    if (pc != 255) cc[k] = pc;
+                }
+            }
+            x = e;
+        }
+        st = next_style;
+        for (k = 0, c = 0; k < PRINT_CARDS * 8; ++k) {            /* ures oszlop : az elozo tinta */
+            if (cc[k] == 0xFE) cc[k] = c; else c = cc[k];
+        }
+        for (k = 0; k < PRINT_CARDS * 8; k = i) {
+            for (i = k; i < PRINT_CARDS * 8 && cc[i] == cc[k]; ++i) ;
+            if (cc[k] != cur) { c_ink(cc[k]); cur = cc[k]; }
+            hdr[0] = 27; hdr[1] = 'K'; hdr[2] = (unsigned char)(i - k); hdr[3] = (unsigned char)((i - k) >> 8);
+            c_send(hdr, 4);
+            for (q = k; q < i; ) {
+                for (e = 0; e < 256 && q < i; ++e, ++q) {
+                    m = (unsigned char)(0x80 >> (q & 7));
+                    b = 0;
+                    for (r = 0; r < 8; ++r) if (strip[(q >> 3) * 8 + r] & m) b |= (unsigned char)(0x80 >> r);
+                    db[e] = b;
+                }
+                c_send(db, e);
+            }
+        }
+        c_byte(CR);
+        c_byte(10);
+        if (n >= doclen) {
+            if (!c_more()) break;
+            p = 0;
+        } else p = n;
+    }
+    wrap_width = TEXT_W;
+    c_ink(0);
+    for (r = 0; r < TEAR_GRAPH; ++r) c_byte(10);
+    c_byte(27); c_byte('@');
+}
+static void c_text(void)
+{
+    unsigned char left = TEXT_LEFT, n, k, seg, cur = 0, st = 0, pc;
+    unsigned p = 0, word, w, q;
+    unsigned char *line = outbuf;
+#define TFLUSH() { c_send(line + seg, n - seg); seg = n; }
+#define TNL() { TFLUSH(); c_byte(CR); n = left; seg = 0; }
+    memset(line, ' ', left);
+    n = left;
+    seg = 0;
+    c_ink(0);
+    while (print_ok && !(PEEK(0x91) == 0x7F)) {
+        if (p >= doclen) {
+            if (!c_more()) break;
+            p = 0;
+            continue;
+        }
+        if (IS_MARK(text[p])) { st = STATE(text[p]); ++p; pg_add(PGB(1)); continue; }
+        if (text[p] == CR) { TNL(); ++p; pg_add(PGB(1)); continue; }
+        w = 0;
+        for (word = p; word < doclen && text[word] != CR; ++word) {
+            if (IS_MARK(text[word])) continue;
+            ++w;
+            if (text[word] == ' ') { ++word; break; }
+        }
+        if (n - left + w > TEXT_COLS && n > left) TNL();
+        for (q = p; q < word; ++q) {
+            if (IS_MARK(text[q])) { st = STATE(text[q]); continue; }
+            if (n - left == TEXT_COLS) TNL();
+            pc = c_pc(st);
+            k = text[q];
+            if (pc == 255) k = ' ';
+            else if (pc != cur && k != ' ') { TFLUSH(); c_ink(pc); cur = pc; }
+            if (k >= 182) k = "\"\"\"''--*"[k - 182];
+            else if (k >= 128) {
+                k -= 128;
+                if (k == 28 || k == 29) k = 'O';
+                else if (k < sizeof c_accent - 1) k = (unsigned char)c_accent[k];
+                else k = ' ';
+            }
+            if (k >= 'a' && k <= 'z') k -= 0x20;
+            else if (k >= 'A' && k <= 'Z') k += 0x80;
+            line[n++] = k;
+        }
+        pg_add(PGB(word - p));
+        p = word;
+    }
+    if (n > left) TNL();
+    c_ink(0);
+    for (k = 0; k < TEAR_TEXT; ++k) c_byte(CR);
+}
+static void c_doc(unsigned char gr)
+{
+    dialog(5, S_MENU3);
+    put_text(DLG_X + 16, DLG_ROW + 2, S_PRINTING, 0);
+    led_theme(gr ? 8 : 9);                      /* PNG COLOR (+ Epson / Commodore) az Ultimate beallitasaiban */
+    pr_col = 1;
+    print_ok = 1;
+    cbm_open(4, 4, gr ? 0 : 7, "");
+    if (cbm_k_readst() & 0x80) print_ok = 0;
+    if (print_ok) {
+        c_begin();
+        pg_begin("", doc_total() * PGK);
+        if (gr) c_graphics(); else c_text();
+        pg_end();
+        c_end();
+    }
+    cbm_close(4);
+    dialog_close();
+    if (!print_ok) message(S_MENU3, S_NOPRINTER, 0, 0);
+}
+#pragma rodata-name (pop)
+#pragma code-name (pop)
+static void print_run(unsigned char mode)       /* a nyomtatas az aktualis betukeszlettel tordel es rajzol, szoveg-nyujtas nelkul */
+{
+    nopad = 1;
+    ovl_load(13);
+    if (c_color_doc()) c_doc(mode == 0);
+    else {
+        if (pr_col) { pr_col = 0; led_theme(10); }       /* vissza a fekete-feher / Commodore beallitasra */
+        ovl_load(2);
+        print_doc(mode);
+    }
+    nopad = 0;
+}
 #else
 static void print_run(unsigned char mode) { ovl_load(2); print_doc(mode); }
 #endif
@@ -4121,8 +4454,8 @@ static void load_rtf_b(void)
 }
 #pragma rodata-name (pop)
 #pragma code-name (pop)
-#pragma code-name (push, "OVERLAY10")
-#pragma rodata-name (push, "OVERLAY10")
+#pragma code-name (push, "OVERLAY8")
+#pragma rodata-name (push, "OVERLAY8")
 static void load_rtf_a(void)
 {
     rl_go = 0;
@@ -4305,12 +4638,12 @@ static unsigned char write_rtf(char *name)
 
 static void rtf_open(void)
 {
-    ovl_load(10);
+    ovl_load(8);
     load_rtf_a();
     if (!rl_go) return;
     ovl_load(1);
     load_rtf_b();
-    ovl_load(10);
+    ovl_load(8);
     load_rtf_c();
 }
 static void txt_open(void) { rtxt = 1; rtf_open(); rtxt = 0; }
@@ -5122,10 +5455,10 @@ static void about_(void)
 #endif
 #ifdef REU
 /* Billentyusapkak a menu jobb oldalan : fekete, lekerekitett sapka, 3x5 pontos fehér nagybetuk ; a szoveg betutipusatol fuggetlen. */
-static const char kg_ch[] = "ACDEFHILMOPRSTU123456789=N/";
+static const char kg_ch[] = "ACDEFHILMOPRSTU123456789=N/0";
 static const unsigned kg_bits[] = {
     0x2BED, 0x3923, 0x6B6E, 0x79A7, 0x79A4, 0x5BED, 0x7497, 0x4927, 0x5FED, 0x2B6A, 0x6BA4, 0x6BAD, 0x388E, 0x7492, 0x5B6F,
-    0x2C97, 0x62A7, 0x628E, 0x5BC9, 0x798E, 0x39AA, 0x7292, 0x2AAA, 0x2ACE, 0xE38, 0x6B6D, 0x12A4
+    0x2C97, 0x62A7, 0x628E, 0x5BC9, 0x798E, 0x39AA, 0x7292, 0x2AAA, 0x2ACE, 0xE38, 0x6B6D, 0x12A4, 0x7B6F
 };
 #define capbuf ((unsigned char *)outbuf + 300)           /* 7 sor, soronkent 5 bajt */
 static void setpx(unsigned char r, unsigned char p, unsigned char v)
@@ -5211,20 +5544,25 @@ static unsigned char run_menu_(unsigned char m)
         row = 2 + i;
         put_text(x0 + 12, row, menu_items[m][i], 0);
 #ifdef REU
+        if (m == M_COLOR) ckey[5] = (char)('1' + i);
         kdraw(x0 + width - 8 - kwid(menu_keys[m][i]), row, menu_keys[m][i]);
 #else
         put_text(x0 + width - 8 - text_width(menu_keys[m][i], 0), row, menu_keys[m][i], 0);
 #endif
-        if (m == 2 && ((i && (style & (1 << (i - 1)))) || (!i && !style)) && !has_selection()) {
+        if (m == 2 && i < 4 && ((i && (style & (1 << (i - 1)))) || (!i && !style)) && !has_selection()) {
             put_text(x0 + 4, row, "*", 0);
         }
 #ifdef REU
         if (m == 2 && i == 7 && small_font) put_text(x0 + 4, row, "*", 0);
+        if (m == M_COLOR && i == (((style & 0x40) ? (style >> 3) : 0) & 7) && !has_selection()) put_text(x0 + 4, row, "*", 0);
 #endif
-#ifdef HUN
-        if (m == 4 && ((i == 2 && sound_on) || (i == 3 && overwrite) || i == 4)) put_text(x0 + 4, row, "*", 0);      /* i == 4 : a menu be van kapcsolva */
+#if defined(HUN) && defined(REU)
+        if (m == M_HELP && ((i == 2 && sound_on) || i == 3)) put_text(x0 + 4, row, "*", 0);      /* i == 3 : a menu be van kapcsolva */
+        if (m == 1 && i == 11 && overwrite) put_text(x0 + 4, row, "*", 0);
+#elif defined(HUN)
+        if (m == M_HELP && ((i == 2 && sound_on) || (i == 3 && overwrite) || i == 4)) put_text(x0 + 4, row, "*", 0);      /* i == 4 : a menu be van kapcsolva */
 #elif defined(REU)
-        if (m == 4 && ((i == 1 && sound_on) || i == 2)) put_text(x0 + 4, row, "*", 0);
+        if (m == M_HELP && ((i == 1 && sound_on) || i == 2)) put_text(x0 + 4, row, "*", 0);
 #endif
     }
     if (kb) { hover = 0; xor_span(2, x0 + 2, x0 + width - 2); }
@@ -5321,22 +5659,28 @@ static void do_menu(unsigned char m, unsigned char item)
 #endif
         break;
     case 1:
-        if (item == 0) cut_selection();
-        if (item == 1) copy_selection();
-        if (item == 2) paste();
 #ifdef REU
-        if (item == 3) select_all();
-#else
-        if (item == 3) set_selection(0, doclen);
-#endif
-        if (item == 4) find_dialog();
-        if (item == 5) find_next();
-#ifdef REU
-        if (item == 6) { undo(); cursor_moved(); }
-        if (item == 7) { redo(); cursor_moved(); }
+        if (item == 0) { undo(); cursor_moved(); }
+        if (item == 1) { redo(); cursor_moved(); }
+        if (item == 2) cut_selection();
+        if (item == 3) copy_selection();
+        if (item == 4) paste();
+        if (item == 5) select_all();
+        if (item == 6) find_dialog();
+        if (item == 7) find_next();
         if (item == 8) handle_key(0x94);        /* torles elore */
         if (item == 9) handle_key(0x13);        /* Home : sor eleje / vege */
         if (item == 10) handle_key(0x09);       /* Tab : negy szokoz */
+#ifdef HUN
+        if (item == 11) { overwrite ^= 1; draw_status(); }
+#endif
+#else
+        if (item == 0) cut_selection();
+        if (item == 1) copy_selection();
+        if (item == 2) paste();
+        if (item == 3) set_selection(0, doclen);
+        if (item == 4) find_dialog();
+        if (item == 5) find_next();
 #endif
         break;
     case 2:
@@ -5348,15 +5692,22 @@ static void do_menu(unsigned char m, unsigned char item)
 #endif
         apply_style(item ? (unsigned char)(1 << (item - 1)) : 0);
         break;
-    case 3:
+    case M_COLOR:
+        apply_style((unsigned char)(0x40 | item));
+        break;
+    case M_PRINT:
         print_run(item);
         break;
-    case 4:
+    case M_HELP:
 #ifdef HUN
         if (item == 1) { hun_toggle(); break; }
         if (item == 2) { sound_on ^= 1; key_click(); break; }
+#ifdef REU
+        if (item == 3) break;                   /* Menu (on / off) : csak a RUN/STOP billentyu tanitasa */
+#else
         if (item == 3) { overwrite ^= 1; draw_status(); break; }
-        if (item == 4) break;                   /* Menu (on / off) : csak a RUN/STOP billentyu tanitasa */
+        if (item == 4) break;
+#endif
 #elif defined(REU)
         if (item == 1) { sound_on ^= 1; key_click(); break; }
         if (item == 2) break;

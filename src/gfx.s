@@ -579,32 +579,20 @@ gp_core:
 ; Bemeneti reteszek : a fajlvalaszto hatterbeli (lassu, FTP-s) lepesei alatt a kattintast (a tuz lenyomasa, bit 4) es az egergorgo impulzusait
 ; (pontosan 4 = fel, 8 = le a port 1-en, mint a poll_mouse-ban ; a 0x1F zaj kimarad) az IRQ elkapja (CIA1 port 1 : aktiv alacsony), a lepes utan a main.c ujrajatsza.
 ; _inp_clk : a lenyomas-elek szama (legfeljebb 3) ; _inp_latch bitek : 0x40 gorgo fel, 0x80 gorgo le. cc65 interruptor : carry torolve = az IRQ lancban a tobbi is lefut.
-        .export _inp_latch, _inp_clk, _inp_hist
+        .export _inp_latch, _inp_clk
         .interruptor _inp_irq
         .bss
 _inp_latch: .res 1
 _inp_clk:   .res 1
 inp_prev:   .res 1
 inp_v:      .res 1
-inp_last:   .res 1
-inp_hn:     .res 1
-_inp_hist:  .res 16
         .code
 _inp_irq:
         lda $DC01
         eor #$FF
         and #$1F
         sta inp_v
-        cmp inp_last            ; napló (hibakereses) : a port 1 minden valtozasa
-        beq @same
-        sta inp_last
-        ldx inp_hn
-        sta _inp_hist,x
-        inx
-        txa
-        and #$0F
-        sta inp_hn
-@same:  lda inp_v
+        lda inp_v
         cmp #$1F
         beq @done               ; zaj
         tax
@@ -1138,3 +1126,77 @@ _nmi_off:
         rts
 @rti:   inc _nmi_hit            ; RESTORE = annuler (le programme lit le drapeau)
         rti
+
+; void __fastcall__ rvs_tail(unsigned from, unsigned to) : a sorpuffer ($0400) from..to (a cella vegeig) pontjait 1-re allitja
+; (RVS cellaban a bit = papir : az RVS-sav a betu veget koveti, nem a cellahatart)
+        .export _rvs_tail
+_rvs_tail:
+        sta ptr2
+        stx ptr2+1
+        jsr popax
+        sta ptr3
+        stx ptr3+1
+        lda ptr3+1
+        beq @ok
+        cmp #1
+        bne @rt
+        lda ptr3
+        cmp #$38
+        bcs @rt
+@ok:    lda ptr3
+        and #7
+        beq @rt
+        sta tmp1
+        lda ptr2
+        sec
+        sbc ptr3
+        sta ptr2
+        lda ptr2+1
+        sbc ptr3+1
+        sta ptr2+1
+        bcc @rt
+        ora ptr2
+        beq @rt
+        lda ptr2+1
+        bne @full
+        lda ptr2
+        clc
+        adc tmp1
+        bcs @full
+        cmp #8
+        bcc @ee
+@full:  lda #8
+@ee:    sta tmp2
+        lda #$FF
+        ldx tmp1
+        beq @m1
+:       lsr
+        dex
+        bne :-
+@m1:    sta tmp3
+        lda #8
+        sec
+        sbc tmp2
+        tax
+        lda #$FF
+        cpx #0
+        beq @m2
+:       asl
+        dex
+        bne :-
+@m2:    and tmp3
+        sta tmp3
+        lda ptr3
+        and #$F8
+        sta ptr1
+        lda ptr3+1
+        clc
+        adc #4
+        sta ptr1+1
+        ldy #7
+:       lda (ptr1),y
+        ora tmp3
+        sta (ptr1),y
+        dey
+        bpl :-
+@rt:    rts

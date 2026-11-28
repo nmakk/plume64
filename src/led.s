@@ -231,6 +231,22 @@ send:   lda dead
 
 prefix: .byte "127.0.0.1/v1/configs/", 0
 
+.ifdef PR
+; Nyomtato-bank (63) : ugyanez a kod, masik tablaval. A = 8 : szines grafikus nyomtatas (Epson + PNG COLOR),
+; 9 : szines szoveg (PNG COLOR + Commodore MPS), 10 : vissza (PNG B&W + Commodore MPS).
+tk1:    .byte "Printer%20Settings/Output%20type?value=", 0
+tk2:    .byte "Printer%20Settings/Emulation?value=", 0
+toks:   .word tk1, tk2
+vcol:   .byte 1, "PNG%20COLOR", 0
+vbw:    .byte 1, "PNG%20B%26W", 0
+vepson: .byte 2, "Epson%20FX-80%2FJX-80", 0
+vcbm:   .byte 2, "Commodore%20MPS", 0
+tab:    .word z0, z0, z0, z0, z0, z0, z0, z0, t8, t9, t10
+z0:     .word 0
+t8:     .word vepson, vcol, 0
+t9:     .word vcol, vcbm, 0
+t10:    .word vbw, vcbm, 0
+.else
 ; Az elemek elso bajtja egy token (1..5), ami a kategoria elejet jelenti: igy nem ismetlodnek a hosszu utvonalak.
 tk1:    .byte "Keyboard%20Lighting/Fixed%20Color?value=", 0
 tk2:    .byte "Keyboard%20Lighting/LedStrip%20Mode?value=", 0
@@ -262,3 +278,4 @@ t3:     .word soff, kamber, ktpure, 0                        ; sarga a feketen
 t4:     .word swheel, 0                              ; indulaskor: gorgo-erzekenyseg
 t5:     .word kfix, 0                                ; billentyuzet be (van mentetlen valtozas)
 t6:     .word koff, 0                                ; billentyuzet ki (minden mentve)
+.endif

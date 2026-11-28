@@ -128,6 +128,11 @@ _led_theme:
         dex
         bpl @i
         pla
+        ldx #62
+        cmp #8
+        bcc @b
+        ldx #63                 ; A >= 8 : a nyomtato-bank (src/led.s -D PR)
+@b:     stx ld_bank+1
         jmp $0334
 ld_img:
         .org $0334
@@ -138,7 +143,7 @@ ld:     pha
         pha
         lda #$37
         sta $01
-        lda #62
+ld_bank: lda #62
         sta $DE00
         ldx #0
 @c:     lda $8000,x
