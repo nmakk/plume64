@@ -2798,6 +2798,7 @@ static void save_doc(void)
     strcat(cmdname, filename);
     strcat(cmdname, ",S,W");
 #endif
+    sd_bad = 0;
     disk_busy(1);
     if (fo_w() == 0) {
         fw(head, HEADLEN);
@@ -4885,6 +4886,7 @@ static unsigned char write_rtf(char *name)
     rtf_dry = 0;
     if (!fit_check(rtf_tot, name)) return 0;
     pg_begin(S_SAVING, rtf_tot);
+    sd_bad = 0;                                 /* egy korabbi, mar elintezett SD-hiba (pl. meret / listazas) ne szamitson a mentes sikerebe */
     disk_busy(1);
     if (fo_w() == 0) {
         rtf_body();
