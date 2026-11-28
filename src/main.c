@@ -5592,7 +5592,7 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
     unsigned char i, c, ex = 1;
     char *e, *buf = (char *)outbuf + 64;
     e = strrchr(buf, '.');                      /* a kiterjesztes a formatumot koveti : x.txt-bol RTF mentesnel x.rtf lesz (es uj nevkent ellenorizzuk) */
-    if (e && e[1] && stricmp(e + 1, fext[pk_fm]))
+    if (save && e && e[1] && stricmp(e + 1, fext[pk_fm]))                 /* csak mentesnel : nyitaskor a fajl neve marad */
         for (i = 0; i < 3; ++i) if (!stricmp(e + 1, fext[i])) { strcpy(e + 1, fext[pk_fm]); newname = 1; break; }
     if (newname) {
         e = strrchr(buf, '.');                  /* mindig van kiterjesztes : ha nincs, a formatumae */
@@ -5621,73 +5621,6 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
     sd_sel = sd_pk;
     fmt_sel = pk_fm;
     return 1;
-}
-
-#pragma rodata-name (pop)
-#pragma code-name (pop)
-#pragma code-name (push, "OVERLAY9")
-#pragma rodata-name (push, "OVERLAY9")
-/* Szovegbekeres (a Find es a fajlvalaszto "Uj..." gombja) : a 9. overlayben. */
-#ifdef REU
-#define AT_B 9                                  /* a gombok kozepso sora */
-#else
-#define AT_B 5
-#endif
-static unsigned char ask_text_(const char *title, const char *label, char *buf, unsigned char max,
-                              unsigned char petscii)
-{
-    char *shown = inputbuf;
-    unsigned char len = (unsigned char)strlen(buf), c, first = 1;
-    for (;;) {
-        if (first) {
-#ifdef REU
-            dialog(12, title);
-            put_text(DLG_X + 16, DLG_ROW + 3, label, 0);
-            outline_box(DLG_ROW + 4, 3, DLG_X + 16, DLG_W - 32);
-#else
-            dialog(8, title);
-            put_text(DLG_X + 16, DLG_ROW + 2, label, 0);
-#endif
-            button(BTN_OK_X, DLG_ROW + AT_B, S_OK);
-            button(BTN_CANCEL_X, DLG_ROW + AT_B, S_CANCEL);
-            first = 0;
-        }
-#ifdef REU
-        clear_cells(DLG_ROW + 5, DLG_X + 24, DLG_W - 48);
-#else
-        clear_cells(DLG_ROW + 3, DLG_X + 8, DLG_W - 16);
-        hline(DLG_ROW + 3, DLG_X + 16, DLG_W - 32, 7);
-#endif
-        if (petscii) petscii_to_text(shown, buf); else strcpy(shown, buf);
-        strcat(shown, "|");
-#ifdef REU
-        put_text(DLG_X + 24, DLG_ROW + 5, shown, BOLD);
-#else
-        put_text(DLG_X + 16, DLG_ROW + 3, shown, BOLD);
-#endif
-        do {
-            poll_mouse();
-            key = read_key();
-            if (on_button(BTN_OK_X, DLG_ROW + AT_B)) key = CR;
-            if (on_button(BTN_CANCEL_X, DLG_ROW + AT_B)) key = 3;
-        } while (!key);
-        if (key == CR && len) { dialog_close(); return 1; }
-        if (key == 3) { dialog_close(); return 0; }
-        if (key == 0x14) { if (len) buf[--len] = 0; continue; }
-        if (len >= max) continue;
-#ifdef REU
-        if (at12 && len >= 12 && key != '.' && !strchr(buf, '.')) continue;   /* lemezen kiterjesztes nelkul 12 jegy, a pont meg jon */
-#endif
-        if (petscii) {
-            if (((key >= 0x20 && key <= 0x5A) || (key >= 0xC1 && key <= 0xDA))
-                && key != ',' && key != ':' && key != '*' && key != '?' && key != '"' && key != '=') {
-                buf[len++] = key;
-            }
-        } else if ((c = translate(key)) != 0) {
-            buf[len++] = c;
-        }
-        buf[len] = 0;
-    }
 }
 
 #pragma rodata-name (pop)
@@ -5907,11 +5840,6 @@ static unsigned char run_menu(unsigned char m) { ovl_load(10); return run_menu_(
 #define menu_go(m) do_menu(m, run_menu(m))
 #endif
 static void about(void) { ovl_load(6); about_(); }
-static unsigned char ask_text(const char *title, const char *label, char *buf, unsigned char max, unsigned char petscii)
-{
-    ovl_load(9);
-    return ask_text_(title, label, buf, max, petscii);
-}
 #else
 #define run_menu run_menu_
 #endif
