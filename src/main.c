@@ -2305,6 +2305,7 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
     char *shown = inputbuf, *b = (char *)outbuf;
     {
         sel = 255;
+        *(unsigned char *)0x02F7 = 255;                 /* nincs elozo kattintas */
         if (newbtn) {
             if (*(unsigned char *)0x02EC) { *(unsigned char *)0x02EC = 0; pk_sync(); }      /* a formatum-gombot most nyomtak meg */
             pk_name();
@@ -2362,8 +2363,11 @@ static unsigned char pick_file_(const char *title, unsigned char newbtn)
                 if (mouse_x >= RQ_X + RQ_W - 32 && (i == 0 || i == MAXFILES - 1) && (fpage || fmore)) {
                     key = i ? 0x11 : 0x91;      /* fleche cliquee : page suivante / precedente */
                 } else if (i < nfiles && !fgrey(i)) {      /* egy kattintas kijelol (szurke hatter), a kijelolt sor ujra kattintva, vagy az Open gomb megnyitja */
-                    if (i == cur) sel = newbtn && fsize[i] != 0xFFFF ? 254 : i;     /* mentesnel: a fajl neve a nevmezoben, a mappa megnyilik */
-                    else { fhl(cur, 0); cur = i; fhl(i, 1); if (newbtn) pk_pick(i); }
+                    if (i == cur && i == *(unsigned char *)0x02F7 && (unsigned char)(PEEK(0xA2) - *(unsigned char *)0x02F6) < 40)     /* dupla kattintas (kb. 0,6 s-on belul ugyanarra a sorra) : megnyitas / mentes / belepes */
+                        sel = newbtn && fsize[i] != 0xFFFF ? 254 : i;                  /* mentesnel: a fajl neve a nevmezoben, a mappa megnyilik */
+                    else if (i != cur) { fhl(cur, 0); cur = i; fhl(i, 1); if (newbtn) pk_pick(i); }
+                    *(unsigned char *)0x02F6 = PEEK(0xA2);
+                    *(unsigned char *)0x02F7 = i;
                 }
             }
             if ((key == 0x11 && fmore) || (key == 0x91 && fpage)) { sel = 253; }
