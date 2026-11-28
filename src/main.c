@@ -5631,10 +5631,11 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
                 if (c >= 0xC1 && c <= 0xDA) c -= 0x80;
                 else if (c >= 0x41 && c <= 0x5A) c += 0x20;
                 else if (c >= 0x80) {                                                 /* ekezetes betu : UTF-8 (ketbajtos) ; ha nincs ilyen, _ */
-                    if (c < 181 && u8t[c - 128][0]) { sd_cand[ex++] = (char)u8t[c - 128][0]; c = u8t[c - 128][1]; }
+                    if (c < 181 && u8t[c - 128][0]) { sd_cand[ex] = (char)u8t[c - 128][0]; ++ex; c = u8t[c - 128][1]; }
                     else c = '_';
                 }
-                sd_cand[ex++] = (char)c;
+                sd_cand[ex] = (char)c;                                             /* (nem sd_cand[ex++] : a cc65 az allando cimu tombnel a novelest az indexeles elott vegzi) */
+                ++ex;
             }
             sd_cand[ex] = 0;
             ex = sd_exists();
