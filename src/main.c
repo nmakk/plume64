@@ -1933,7 +1933,8 @@ static int fr(void *b, unsigned n)
     if (!sd_on) return cbm_read(2, b, n);
     SD_PTR = (unsigned)b;
     SD_LEN = n;
-    sdk(sd_read());
+    n = sd_read();
+    if (n && !SD_LEN) sd_bad = (unsigned char)n;      /* a fajl vege elotti rovid olvasas (kisebb fajl, mint a kert hossz) az Ultimatenel nem nulla allapotot ad : csak akkor hiba, ha semmit sem kaptunk */
     return SD_LEN;
 }
 static void fw(const void *b, unsigned n)
