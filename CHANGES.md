@@ -4,6 +4,25 @@ This project is **PlumE** (*enhanced* Plume), and its edition for a C64 with a R
 
 The original Plume has since taken over two of the shared fixes (lost keystrokes, flicker-free line and status drawing). Nothing else of the original's later work (2.3 HU "Hide idle pointer", the `dist/*.prg` programs) is merged here.
 
+## 0c. New in PlumE REU 26d
+
+### Paragraph alignment
+- **New *Align* menu** (Left, Centre, Right, Justify; the key caps show nothing yet, menu only): it acts on the paragraph of the cursor or on every paragraph of the selection, also on *Select all* of a document of any size. The alignment is a zero-width control byte at the start of the paragraph (`$0B` centre, `$0C` right, `$09` justify; none = left), so it is saved in PLM and travels with copy, paste and undo. The cursor never stops in front of it.
+- **Display**: centre / right shift the line, justify spreads the leftover pixels over the spaces of the line (the last line of a paragraph stays left). The cursor, mouse clicks, selection and printing follow the same geometry (`gp_adv`). Blank space at the end of a line is ignored. Colour changes between words can leave up to 7 pixels of raggedness on a justified line.
+- **RTF**: `\ql \qc \qr \qj` are read and written (`\pard` after an aligned paragraph); plain text ignores alignment.
+- **Large selections** are processed paragraph by paragraph from the end, moving the window as needed, with a progress bar in the footer. For a selection over about 4 KB nothing is journaled (much faster) and the undo history is cleared at the end. A paragraph longer than 64 KB is not aligned and a message says so.
+- Print: the alignment byte is never sent to the printer (the print layout itself is not aligned yet).
+
+### Fixed width, menus, cursor
+- ***Style → Fixed width***: every letter is as wide as a *W* and glyphs are centred in the cell (display only; the text is unchanged).
+- **The menus always use the small font**, also in large-font mode, so the seven menus fit.
+- **The cursor never sits in the scrollbar**: when the block would not fit at the right edge (line break, end of a paragraph, typical in right-aligned and justified text) it moves to the last cell of the text area and shows a small *return* arrow.
+
+### Speed and robustness
+- **REU DMA moves**: big memory blocks (scrolling, window slides, the tail move of every edit, style changes) go through the REU instead of `memmove` (about 4 to 5 times faster). The REU reads the C64 bus, so the KERNAL ROM is hidden while it reads the bitmap.
+- **FTP mount cache**: the Ultimate keeps a downloaded copy of each file read from `/ftp/...` in `/Temp/cache/ftp/` and never refreshes it, even after the file was changed or saved. PlumE now deletes the file's cache entry before it opens it, so the current file is always read. As a safety net, PlumE puts markers before the end of the file image in the REU and, if the load did not overwrite them, stops with a message instead of loading garbage.
+- Memory: the journal, the button drawing, the alignment code and parts of the file loader moved into new overlays (14, 15), the menu texts moved out of the resident texts; the diagnostic input ring was removed.
+
 ## 0b. New in PlumE REU 26c
 
 ### Menus, colour printing

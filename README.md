@@ -20,6 +20,8 @@
 - **Works without the mouse**: `RUN/STOP` opens the menu bar (cursor keys move through the menus and items, `Space` or `Return` choose, `RUN/STOP` closes it) and the menus show their keys as small key caps; `C=` + a cursor key selects text (`C=` + `Shift` + cursor goes up or left); `B` / `I` / `U` change the character under the cursor when nothing is selected.
 - **Text colours and reverse video (RVS)**: the eight colours of the number keys on `CTRL` + `1` … `8` (black, white, red, cyan, purple, green, blue, yellow), RVS on `CTRL` + `9` and off `CTRL` + `0` (all of it also in the *Color* menu, with the key caps); every theme keeps the colours visible (white on white is light grey, black on black is dark grey). Saved in PLM and RTF (`\cf`, `\highlight`). The C64 colours are per 8x8 cell, so colouring works best word by word: see *Colours in detail* below.
 - **Typographic punctuation**: `„` `”` `“` `‘` `’` `–` `—` `•` on `C=` + `1` … `8` (`Shift` + `C=` + `1` … `8` in the Hungarian layout); the RTF `\endash`, `\emdash`, `\bullet`, `\lquote`, `\rquote`, `\ldblquote`, `\rdblquote` and `\uN` codes are read and written back, the plain `"` and `'` stay on the keyboard as they were.
+- **Paragraph alignment**: *Align* menu with Left, Centre, Right and Justify (justified text spreads the spaces; the last line stays left), for the paragraph at the cursor or the whole selection (also *Select all* of a big document). Saved in PLM and RTF (`\qc` `\qr` `\qj`).
+- **Fixed width** (*Style → Fixed width*) shows the text in equal-width cells; the menus always use the small font.
 - **Four colour themes** (`CTRL` + `←`); on a C64 Ultimate the keyboard and case LEDs follow the theme and the keyboard LED shows unsaved changes.
 - **Printing** on a Commodore MPS-803 / MPS-801 (device 4) with 3 cm margins on A4: *Graphics* (exactly what is on screen), *Text* (the printer's characters, faster, without accents) and *Wide text*; large documents are printed in chunks. A progress bar shows how far printing is. On a C64 Ultimate, a document with colours or RVS prints in colour (see *Colour printing*).
 - **Four editions** (menus in English, keyboard and letters per language): French, English, Danish, Hungarian.
@@ -122,6 +124,8 @@ A close-up of the rules (the space before *Thank you,* grew to the next cell edg
 - **Files**: PLM and RTF keep the colours (RTF: `\colortbl`, `\cfN`, `\highlightN` for RVS; other colours of an imported RTF become the nearest of the eight). Older versions cannot show a PLM file that uses colours correctly.
 
 ## Good to know
+
+- **FTP folders (`/ftp/...`) on a C64 Ultimate**: the Ultimate caches every file it reads from an FTP server and never refreshes the copy. PlumE removes the cached copy before it opens a file, so you always get the current file; if the file image is still incomplete it says so (*Incomplete read: stale FTP cache?*) instead of loading garbage.
 
 - **Disk access**: Plume hides the sprites during IEC disk access, otherwise JiffyDOS falls back to slow serial transfer. Do not read the C64 Ultimate's memory over the REST API during disk access.
 - **RTF code pages**: `\ansicpg1250` (Hungarian ő ű as `\'f5` `\'fb`) and the usual cp1252 escapes are read correctly. Not handled: other code pages and RTF text colours. Loading a very large file over IEC is very slow; use the C64U buttons.

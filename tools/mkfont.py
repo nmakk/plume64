@@ -76,7 +76,7 @@ for ch in chars:
 with open(sys.argv[2], "w") as f:
     f.write("; Genere par tools/mkfont.py depuis unscii-8 (domaine public).\n")
     f.write("\t.export _font_width, _font_bits, FONT_FIRST, FONT_COUNT\n")
-    f.write(f"FONT_FIRST = 32\nFONT_COUNT = {len(chars)}\n\t.rodata\n_font_width:\n")
+    f.write(f"FONT_FIRST = 32\nFONT_COUNT = {len(chars)}\n\t.rodata\n\t.res 32, 0\t\t\t\t; a vezerlokodok (< 32) szelessege : 0 (igazitas-jelek)\n_font_width:\n")
     for i in range(0, len(widths), 16):
         f.write("\t.byte " + ",".join(str(w) for w in widths[i:i + 16]) + "\n")
     f.write("_font_bits:\t\t\t; 8 octets par caractere, aligne a gauche\n")

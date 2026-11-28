@@ -1,6 +1,6 @@
 # Plume : traitement de texte graphique pour Commodore 64.
 # make -> build/plume-fr.crt, plume-en.crt, plume-dk.crt et plume-hu.crt (et les .prg)
-# L'edition REU (PlumE REU 26c, enhanced) donne build/plumereu-XX-26c.crt
+# L'edition REU (PlumE REU 26d, enhanced) donne build/plumereu-XX-26d.crt
 # dk : menus anglais, clavier danois (æ ø å sur : ; @)
 # hu : menus anglais, clavier hongrois (á é í ó ö ő ú ü ű sous C=)
 LANGS := fr en dk hu
@@ -14,7 +14,7 @@ build/build.h: FORCE
 	@mkdir -p build
 	@id=$$(git rev-parse --short HEAD 2>/dev/null || echo dev); git diff --quiet HEAD -- src Makefile plume-reu.cfg tools/*.py fonts 2>/dev/null || id=$$id+; \
 	echo "#define BUILD \"$$id\"" > build/build.tmp; cmp -s build/build.tmp $@ || mv build/build.tmp $@; rm -f build/build.tmp
-VER := 26c
+VER := 26d
 # The original (non-REU) Plume builds are no longer part of the default target (no space left for new features);
 # build them explicitly with `make build/plume-XX.crt`.
 all: $(foreach l,$(LANGS),build/plumereu-$(l)-$(VER).crt)

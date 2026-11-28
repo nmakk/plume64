@@ -3,6 +3,7 @@
 FONT_FIRST = 32
 FONT_COUNT = 158
 	.rodata
+	.res 32, 0				; a vezerlokodok (< 32) szelessege : 0 (igazitas-jelek)
 _font_width:
 	.byte 4,3,7,8,7,8,8,4,5,5,9,7,4,7,3,9
 	.byte 7,7,7,7,8,7,7,7,7,7,3,4,6,7,6,7

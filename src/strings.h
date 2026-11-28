@@ -98,6 +98,15 @@
 #define S_COLORS     "Themes"
 #define S_RVSON      "RVS on"
 #define S_MENUC      "Color"
+#define S_MENUA "Align"
+#define S_TRUNC "Incomplete read: stale FTP cache?"
+#define S_TRUNC2 "Add or remove a file on the server."
+#define S_ALSKIP "Paragraph over 64 KB: not aligned"
+#define S_AL0 "Left"
+#define S_AL1 "Centre"
+#define S_AL2 "Right"
+#define S_AL3 "Justify"
+#define S_FIXED "Fixed width"
 #define S_C0 "Black"
 #define S_C1 "White"
 #define S_C2 "Red"
@@ -124,7 +133,7 @@
 #define S_RELOAD1    "Back to disk file."
 #ifdef REU
 #include "../build/build.h"
-#define S_VER        "26c #" BUILD           /* PlumE REU : annee + lettre de la livraison, et l'identifiant du build (git) */
+#define S_VER        "26d #" BUILD           /* PlumE REU : annee + lettre de la livraison, et l'identifiant du build (git) */
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"
@@ -234,6 +243,15 @@
 #define S_SAVING     "Enregistrement..."
 #define S_COLORS     "Themes"
 #define S_RVSON      "RVS on"
+#define S_FIXED "Chasse fixe"
+#define S_ALSKIP "Paragraphe > 64 Ko : non align" C_EAIGU "."
+#define S_TRUNC "Lecture incompl" C_EGRAVE "te : cache FTP p" C_EAIGU "rim" C_EAIGU " ?"
+#define S_TRUNC2 "Ajoutez ou supprimez un fichier sur le serveur."
+#define S_MENUA "Aligner"
+#define S_AL0 "Gauche"
+#define S_AL1 "Centre"
+#define S_AL2 "Droite"
+#define S_AL3 "Justifier"
 #define S_MENUC      "Couleur"
 #define S_C0 "Noir"
 #define S_C1 "Blanc"
@@ -260,7 +278,7 @@
 #define S_RELOADB    "Restaurer le .bck"
 #define S_RELOAD1    "Retour au fichier du disque."
 #ifdef REU
-#define S_VER        "26c"
+#define S_VER        "26d"
 #define S_NAME       "PlumE REU"
 #else
 #define S_VER        "2.2"

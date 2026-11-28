@@ -498,6 +498,9 @@ gp_core:
         rts
 :       lda gp_c
         cmp #' '
+        bcs :+
+        rts                     ; vezerlokod (igazitas-jel) : nulla szelesseg, semmi sem valtozik
+:       cmp #' '
         bne :+
         lda #1
         sta gp_sp
@@ -1200,3 +1203,26 @@ _rvs_tail:
         dey
         bpl :-
 @rt:    rts
+
+; void cur_arrow(void) : a sortores / sorveg kurzorban "ujsor" nyil (a blokk 7 pont szeles, a nyil a sprite 1-ben : $C040, a blokk a sprite 2-ben : $CBC0).
+        .export _cur_arrow
+        .rodata
+cur_arrow_bits: .byte $04, $04, $04, $24, $64, $FC, $60, $20
+        .code
+_cur_arrow:
+        ldx #0
+        ldy #0
+@l:     lda cur_arrow_bits,y
+        sta $C040,x
+        lda #0
+        sta $C041,x
+        sta $CBC1,x
+        lda #$FE
+        sta $CBC0,x
+        inx
+        inx
+        inx
+        iny
+        cpy #8
+        bne @l
+        rts
