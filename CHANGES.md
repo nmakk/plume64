@@ -21,6 +21,7 @@ The original Plume has since taken over two of the shared fixes (lost keystrokes
 ### Speed and robustness
 - **REU DMA moves**: big memory blocks (scrolling, window slides, the tail move of every edit, style changes) go through the REU instead of `memmove` (about 4 to 5 times faster). The REU reads the C64 bus, so the KERNAL ROM is hidden while it reads the bitmap.
 - **FTP mount cache**: the Ultimate keeps a downloaded copy of each file read from `/ftp/...` in `/Temp/cache/ftp/` and never refreshes it, even after the file was changed or saved. PlumE now deletes the file's cache entry before it opens it, so the current file is always read. As a safety net, PlumE puts markers before the end of the file image in the REU and, if the load did not overwrite them, stops with a message instead of loading garbage.
+- **Save as follows the format with the extension**: if you pick the *RTF* button for a file named `x.txt` (or *TXT* for `x.rtf`, etc.), the name becomes `x.rtf` instead of an RTF text inside a `.txt` file; the usual overwrite question is asked for the new name.
 - Memory: the journal, the button drawing, the alignment code and parts of the file loader moved into new overlays (14, 15), the menu texts moved out of the resident texts; the diagnostic input ring was removed.
 
 ## 0b. New in PlumE REU 26c

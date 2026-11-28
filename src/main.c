@@ -4645,6 +4645,7 @@ static const char tr1[] = S_TRUNC, tr2[] = S_TRUNC2;      /* az overlay rodata-j
 static void ftp_uncache_(void)
 {
     char *k = (char *)outbuf + 200, *p = SD_PATH, *o = k;
+    sd_abort();                                 /* a Nyitas ablak hatterben felbehagyott listazasa ne zavarja a torlest */
     if (strncmp(p, "/ftp/", 5)) return;
     p = strchr(p + 5, '/');                     /* a szerver neve utan : a mappa */
     if (p) for (; *p; ++p) *o++ = *p == '/' ? '_' : *p;
@@ -4666,12 +4667,15 @@ static void ftp_uncache(void) { unsigned char o = ovl_cur; ovl_load(14); ftp_unc
 #pragma code-name (pop)
 static void load_rtf_a(void)
 {
+    unsigned char ok;
     rl_go = 0;
     rlim = suf_end;
     if (!sd_on) scan_dir(filename);             /* la taille du fichier (en blocs) pour la barre de progression */
     disk_busy(1);
     if (sd_on) ftp_uncache();
-    if (fo_r(filename) != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
+    ok = fo_r(filename);
+    if (ok && sd_on) { sd_abort(); sd_bad = 0; ok = fo_r(filename); }       /* egyszer ujraprobaljuk (felbehagyott listazas, atmeneti UCI hiba) */
+    if (ok != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
     if (sd_on) {                                /* SD : tout le fichier d'un coup dans le REU (DMA), traite ensuite */
         sdk(sd_size());
         if (SD_SIZE + 8192UL > suf_end) { fc(); disk_busy(0); message(S_OPENRTF, S_FULL, 0, 0); return; }
@@ -5538,6 +5542,9 @@ static unsigned char file_commit_(const char *title, unsigned char save, unsigne
 {
     unsigned char i, c, ex = 1;
     char *e, *buf = (char *)outbuf + 64;
+    e = strrchr(buf, '.');                      /* a kiterjesztes a formatumot koveti : x.txt-bol RTF mentesnel x.rtf lesz (es uj nevkent ellenorizzuk) */
+    if (e && e[1] && stricmp(e + 1, fext[pk_fm]))
+        for (i = 0; i < 3; ++i) if (!stricmp(e + 1, fext[i])) { strcpy(e + 1, fext[pk_fm]); newname = 1; break; }
     if (newname) {
         e = strrchr(buf, '.');                  /* mindig van kiterjesztes : ha nincs, a formatumae */
         if (!e) { strcat(buf, "."); strcat(buf, fext[pk_fm]); }
