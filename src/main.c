@@ -4645,7 +4645,6 @@ static const char tr1[] = S_TRUNC, tr2[] = S_TRUNC2;      /* az overlay rodata-j
 static void ftp_uncache_(void)
 {
     char *k = (char *)outbuf + 200, *p = SD_PATH, *o = k;
-    sd_abort();                                 /* a Nyitas ablak hatterben felbehagyott listazasa ne zavarja a torlest */
     if (strncmp(p, "/ftp/", 5)) return;
     p = strchr(p + 5, '/');                     /* a szerver neve utan : a mappa */
     if (p) for (; *p; ++p) *o++ = *p == '/' ? '_' : *p;
@@ -4674,7 +4673,7 @@ static void load_rtf_a(void)
     disk_busy(1);
     if (sd_on) ftp_uncache();
     ok = fo_r(filename);
-    if (ok && sd_on) { sd_abort(); sd_bad = 0; ok = fo_r(filename); }       /* egyszer ujraprobaljuk (felbehagyott listazas, atmeneti UCI hiba) */
+    if (ok && sd_on) { sd_bad = 0; ok = fo_r(filename); }       /* egyszer ujraprobaljuk (felbehagyott listazas, atmeneti UCI hiba) */
     if (ok != 0) { disk_busy(0); disk_status(); show_disk_error(); return; }
     if (sd_on) {                                /* SD : tout le fichier d'un coup dans le REU (DMA), traite ensuite */
         sdk(sd_size());
